@@ -12,8 +12,8 @@ export default function Home() {
           </h1>
           <p className="text-base leading-relaxed text-zinc-400">
             Verso connects to Spotify, figures out what you&apos;re currently
-            listening to, and shows you the lyrics — translated into the
-            language you understand.
+            listening to, and shows you the lyrics — translated into your
+            language of choice.
           </p>
         </div>
 

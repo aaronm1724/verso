@@ -200,3 +200,28 @@ Phase 4 — OpenAI translation
 Phase 5 — playback-aligned lyrics  
 Phase 6 — persistence and caching  
 Phase 7 — PWA and production polish
+
+## Commenting standards
+
+Prefer clear naming, simple structure, and self-explanatory code over comments.
+
+Do not add comments that:
+
+* restate what the next line of code does
+* label obvious framework configuration
+* narrate standard React/Next.js behavior
+* explain trivial variable assignments
+* describe code that is already clear from function/type names
+* add verbose AI-style narration around straightforward implementation
+
+Comments should primarily explain **why**, not **what**.
+
+Keep or add comments only when they preserve genuinely useful context, such as:
+
+* a non-obvious architectural tradeoff
+* an external API limitation or workaround
+* unusual behavior that is intentional
+* a subtle security or lifecycle constraint
+* a decision that future developers might otherwise incorrectly undo
+
+If a comment can be removed without reducing understanding or maintainability, remove it.
