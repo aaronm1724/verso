@@ -1,0 +1,46 @@
+# Universal Lyric Translator .cursorrules - Decoupled Stack Standards
+
+You are an elite principal engineer building the Universal Lyric Translator. The project uses a decoupled stack: a persistent Node.js/Express REST backend and an installable Vite+React PWA frontend. Write modular, performant, and type-safe code that minimizes network overhead and prevents edge-case state glitches.
+
+## 1. Directory Topology & Monorepo Separation
+- **Enforce Separation:** The client and server environments are completely distinct. Do not mix dependencies or allow server-side modules to leak into `/client` or vice-versa.
+- **Strict Typing:** Eradicate any use of implicit `any` or `as any` type-casting. Leverage TypeScript utility types (`Pick`, `Omit`, `Partial`) to explicitly type data variations.
+
+---
+
+## 2. Server Architecture: Node.js, Express & TypeScript
+- **Controller-Service-Route Separation:** Do not write business logic directly inside Express route handlers. Routes only map pathways. Controllers manage request/response boundaries. Services orchestrate the actual data data pipelines.
+- **Custom Typed Middleware:** All request extensions (like appending authenticated user state to `req.user`) must be strongly declared by extending the native Express namespace. Never use untyped mutations.
+- **Async Error Isolation:** Wrap all asynchronous controllers in a higher-order wrapper or custom global error handling middleware to cleanly catch and process unhandled promise rejections.
+
+---
+
+## 3. The Live Pipeline & Rate-Limit Defense (Scraper + OpenAI)
+- **Scraper Circuit Breakers:** Public lyric indexing APIs (like `lrclib.net`) enforce strict operational limits (~20 requests/second) and trigger `429` rate blocks. Write sequential, bounded request retry patterns utilizing exponential backoff timers.
+- **Defensive LLM Ingestion:** Public web-scraped strings frequently contain unneeded HTML formatting, advertisements, or page footer clutter. Your ingestion service must sanitize the raw text down to basic lyric structures *before* passing it to OpenAI to protect your context token budget.
+- **Guaranteed JSON Outputs:** Force `gpt-4o-mini` to operate using native Structured Outputs (`response_format: { type: "json_object" }`). Write an internal data validation middleware function utilizing a schema parser (like Zod) to assert the payload's integrity before writing to PostgreSQL.
+
+---
+
+## 4. PostgreSQL JSONB Cache Operations
+- **Atomic Upsert Actions:** When saving a newly generated translation block, do not issue consecutive `find` and `update` queries. Execute a clean, single-query database `UPSERT` operation keyed against the composite unique properties of `(spotify_song_id, target_language)`.
+- **Selective Row Ingestion:** When checking for a cache hit, pull only the specific language key nested inside the `JSONB` column using optimized field selectors (e.g., `translations->'fr'`). Never pull the entire song record into server memory just to extract one local translation translation block.
+
+---
+
+## 5. Client Architecture: Vite, React & TypeScript PWA
+- **Separation of Network and View:** UI components must look stateless. Isolate data fetching, Spotify playback polling, and translation updates into modular React hooks (e.g., `useSpotifyPlayback`). Components simply ingest state variables and map styles.
+- **Controlled Telemetry Polling:** Do not flood your backend server with basic, endless `setInterval` polling loops to track the track timestamp change. Use smart polling that drops frequency if the user changes browser tabs (leveraging `document.visibilityState`) or if the playback state returns as paused.
+
+---
+
+## 6. Production-Grade PWA Asset Caching & Prompt Updates
+- **Anti-Stale Cache Configuration:** Do not use `registerType: 'autoUpdate'` inside your `vite-plugin-pwa` manifest profile. This forces immediate file overwrites that crash the user interface mid-session.
+- **Manual Refresh Handlers:** Implement `registerType: 'prompt'`. Force the UI to listen for the service worker's `onNeedRefresh` hook and display a neat update banner. Execute `updateSW(true)` only upon explicit user confirmation to safely download changes.
+- **Workbox Optimization:** Configure precise Workbox route exclusions. Only cache critical local layout bundles and static system SVG icons. Prevent the service worker from accidentally caching external Spotify streaming endpoints or your server's live API routes.
+
+---
+
+## 7. Execution Strategy for Cursor Tasks
+- Complete the full, end-to-end backend REST API pathway (`Spotify API -> Scraper -> OpenAI -> Postgres`) first. Verify and validate the JSON schema shapes using Postman.
+- Do not generate complex layout views or styling assets until the backend endpoint returns a clean, cached asset payload under 200 milliseconds.
