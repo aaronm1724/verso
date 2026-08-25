@@ -1,46 +1,202 @@
-# Universal Lyric Translator .cursorrules - Decoupled Stack Standards
+# Verso .cursorrules
 
-You are an elite principal engineer building the Universal Lyric Translator. The project uses a decoupled stack: a persistent Node.js/Express REST backend and an installable Vite+React PWA frontend. Write modular, performant, and type-safe code that minimizes network overhead and prevents edge-case state glitches.
+You are building Verso, a mobile-first lyric translation companion for Spotify listeners.
 
-## 1. Directory Topology & Monorepo Separation
-- **Enforce Separation:** The client and server environments are completely distinct. Do not mix dependencies or allow server-side modules to leak into `/client` or vice-versa.
-- **Strict Typing:** Eradicate any use of implicit `any` or `as any` type-casting. Leverage TypeScript utility types (`Pick`, `Omit`, `Partial`) to explicitly type data variations.
+Verso identifies the user's currently playing Spotify track, retrieves available lyrics, translates them into the user's target language, and presents the original and translated lyrics together in a clean mobile experience.
 
----
+## 1. Core stack
 
-## 2. Server Architecture: Node.js, Express & TypeScript
-- **Controller-Service-Route Separation:** Do not write business logic directly inside Express route handlers. Routes only map pathways. Controllers manage request/response boundaries. Services orchestrate the actual data data pipelines.
-- **Custom Typed Middleware:** All request extensions (like appending authenticated user state to `req.user`) must be strongly declared by extending the native Express namespace. Never use untyped mutations.
-- **Async Error Isolation:** Wrap all asynchronous controllers in a higher-order wrapper or custom global error handling middleware to cleanly catch and process unhandled promise rejections.
+Use a single unified application:
 
----
+- Next.js
+- App Router
+- React
+- TypeScript
+- Tailwind CSS
+- Next.js route handlers for server-side API logic
 
-## 3. The Live Pipeline & Rate-Limit Defense (Scraper + OpenAI)
-- **Scraper Circuit Breakers:** Public lyric indexing APIs (like `lrclib.net`) enforce strict operational limits (~20 requests/second) and trigger `429` rate blocks. Write sequential, bounded request retry patterns utilizing exponential backoff timers.
-- **Defensive LLM Ingestion:** Public web-scraped strings frequently contain unneeded HTML formatting, advertisements, or page footer clutter. Your ingestion service must sanitize the raw text down to basic lyric structures *before* passing it to OpenAI to protect your context token budget.
-- **Guaranteed JSON Outputs:** Force `gpt-4o-mini` to operate using native Structured Outputs (`response_format: { type: "json_object" }`). Write an internal data validation middleware function utilizing a schema parser (like Zod) to assert the payload's integrity before writing to PostgreSQL.
+Do not create separate Vite and Express applications.
 
----
+Do not create `/client` and `/server` projects.
 
-## 4. PostgreSQL JSONB Cache Operations
-- **Atomic Upsert Actions:** When saving a newly generated translation block, do not issue consecutive `find` and `update` queries. Execute a clean, single-query database `UPSERT` operation keyed against the composite unique properties of `(spotify_song_id, target_language)`.
-- **Selective Row Ingestion:** When checking for a cache hit, pull only the specific language key nested inside the `JSONB` column using optimized field selectors (e.g., `translations->'fr'`). Never pull the entire song record into server memory just to extract one local translation translation block.
+External services will be introduced incrementally:
 
----
+- Spotify Web API
+- LRCLIB
+- OpenAI API
+- Zod
 
-## 5. Client Architecture: Vite, React & TypeScript PWA
-- **Separation of Network and View:** UI components must look stateless. Isolate data fetching, Spotify playback polling, and translation updates into modular React hooks (e.g., `useSpotifyPlayback`). Components simply ingest state variables and map styles.
-- **Controlled Telemetry Polling:** Do not flood your backend server with basic, endless `setInterval` polling loops to track the track timestamp change. Use smart polling that drops frequency if the user changes browser tabs (leveraging `document.visibilityState`) or if the playback state returns as paused.
+Later, only when the milestone requires them:
 
----
+- PostgreSQL / Supabase
+- Drizzle ORM
+- PWA/service worker support
+- Vercel deployment
 
-## 6. Production-Grade PWA Asset Caching & Prompt Updates
-- **Anti-Stale Cache Configuration:** Do not use `registerType: 'autoUpdate'` inside your `vite-plugin-pwa` manifest profile. This forces immediate file overwrites that crash the user interface mid-session.
-- **Manual Refresh Handlers:** Implement `registerType: 'prompt'`. Force the UI to listen for the service worker's `onNeedRefresh` hook and display a neat update banner. Execute `updateSW(true)` only upon explicit user confirmation to safely download changes.
-- **Workbox Optimization:** Configure precise Workbox route exclusions. Only cache critical local layout bundles and static system SVG icons. Prevent the service worker from accidentally caching external Spotify streaming endpoints or your server's live API routes.
+Do not introduce infrastructure before it is needed.
 
----
+## 2. Engineering principles
 
-## 7. Execution Strategy for Cursor Tasks
-- Complete the full, end-to-end backend REST API pathway (`Spotify API -> Scraper -> OpenAI -> Postgres`) first. Verify and validate the JSON schema shapes using Postman.
-- Do not generate complex layout views or styling assets until the backend endpoint returns a clean, cached asset payload under 200 milliseconds.
+- Use strict TypeScript.
+- No implicit `any`.
+- Avoid `as any`.
+- Prefer simple, explicit types.
+- Keep external API logic out of React presentation components.
+- Normalize third-party responses into Verso-owned domain types.
+- Do not build speculative abstractions.
+- Do not install dependencies for future phases early.
+
+## 3. External API boundaries
+
+Spotify, LRCLIB, and OpenAI must each live behind dedicated service modules.
+
+Do not scatter raw API calls throughout components or route handlers.
+
+External failures should be represented using typed result states rather than leaking vendor-specific errors into the UI.
+
+## 4. Spotify rules
+
+Spotify is used to:
+
+- authenticate the user
+- identify the currently playing track
+- retrieve playback state and progress
+
+Spotify's public Web API does not provide lyrics.
+
+All Spotify API access must eventually pass through a dedicated Spotify client/service.
+
+Spotify token handling must support:
+
+- access-token expiration
+- refresh
+- one bounded retry after appropriate authentication failure
+- reconnect state when refresh credentials are invalid
+- no infinite refresh loops
+
+Never expose or log:
+
+- client secrets
+- access tokens
+- refresh tokens
+- authorization codes
+
+## 5. Lyrics rules
+
+The MVP lyric provider is LRCLIB.
+
+The pipeline is:
+
+Spotify track metadata
+→ LRCLIB lookup
+→ synced lyrics if available
+→ otherwise plain lyrics
+→ otherwise clean not-found state
+
+Do not scrape arbitrary lyric websites as an automatic fallback.
+
+Never send empty lyrics to the translation provider.
+
+The UI should depend on Verso-owned lyric types rather than LRCLIB response shapes.
+
+## 6. Translation rules
+
+Do not implement translation until lyric retrieval works.
+
+When OpenAI is introduced:
+
+- use OpenAI API for translation
+- use Structured Outputs with an explicit schema
+- validate responses with Zod
+- keep the model configurable
+- never ask the model to invent or retrieve lyrics
+- preserve original lyrics separately
+- do not fabricate missing lines or metadata
+
+## 7. Playback synchronization
+
+Do not implement this until basic current-track retrieval and lyrics work.
+
+When synchronized lyrics are available:
+
+- interpolate playback progress locally
+- periodically resynchronize with Spotify
+- handle pauses, seeks, and track changes
+- highlight the current lyric
+- pause auto-scroll while the user manually scrolls
+
+When synchronized lyrics are unavailable, use a clean static/plain lyric experience.
+
+## 8. Database rules
+
+Do not create PostgreSQL/Supabase until the translation pipeline works end-to-end.
+
+Persistence will initially be used for:
+
+- translation caching
+- target-language preference
+- lightweight user preferences
+
+Do not design a large speculative schema early.
+
+## 9. PWA rules
+
+Verso should eventually become an installable PWA, but first build an excellent responsive mobile web app.
+
+Do not add service workers during early milestones.
+
+When PWA support is added:
+
+- avoid caching authenticated live API responses
+- avoid caching Spotify playback responses
+- use deliberate update behavior
+- do not force mid-session reloads
+
+## 10. UI principles
+
+Verso is mobile-first.
+
+The ideal flow is:
+
+Open Verso
+→ current song detected
+→ lyrics retrieved
+→ translation displayed
+
+Prioritize:
+
+- readability
+- original/translation association
+- touch-friendly layouts
+- strong current-line hierarchy
+- clean loading/error/unavailable states
+
+Avoid generic admin-dashboard styling.
+
+## 11. Development workflow
+
+Work one milestone at a time.
+
+For every milestone:
+
+1. inspect existing code
+2. propose the smallest meaningful implementation
+3. state expected files to change
+4. implement only that milestone
+5. run lint/typecheck/build
+6. provide manual tests
+7. harden expected failure states
+8. stop before the next milestone
+
+Do not automatically implement future phases.
+
+## 12. Planned roadmap
+
+Phase 0 — project foundation and landing shell  
+Phase 1 — Spotify authentication  
+Phase 2 — current playback  
+Phase 3 — LRCLIB lyric retrieval  
+Phase 4 — OpenAI translation  
+Phase 5 — playback-aligned lyrics  
+Phase 6 — persistence and caching  
+Phase 7 — PWA and production polish
