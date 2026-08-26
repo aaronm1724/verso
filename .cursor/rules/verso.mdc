@@ -1,4 +1,9 @@
-# Verso .cursorrules
+---
+description: Core project rules, architecture constraints, workflow, and durable documentation expectations for Verso.
+alwaysApply: true
+---
+
+# Verso Project Rules
 
 You are building Verso, a mobile-first lyric translation companion for Spotify listeners.
 
@@ -225,3 +230,50 @@ Keep or add comments only when they preserve genuinely useful context, such as:
 * a decision that future developers might otherwise incorrectly undo
 
 If a comment can be removed without reducing understanding or maintainability, remove it.
+
+## Environment Variables
+
+A real `.env.local` file already exists in the project root and contains the Phase 1 development credentials.
+
+Expected variables:
+
+```env
+SPOTIFY_CLIENT_ID=
+SPOTIFY_CLIENT_SECRET=
+SPOTIFY_REDIRECT_URI=
+SESSION_SECRET=
+```
+
+Use these values at runtime, but:
+
+* do not modify `.env.local`
+* do not print or expose any value from `.env.local`
+* do not copy secrets into source files, tests, logs, documentation, or completion reports
+* do not commit `.env.local`
+* verify `.env.local` remains ignored by Git
+
+`.env.example` should remain the safe committed template containing the same variable names with empty values only.
+
+Do not create another environment file unless there is a concrete implementation reason.
+
+
+## Durable project context
+
+Before planning or implementing a new phase, read:
+
+- `docs/PROJECT.md`
+- `docs/ARCHITECTURE.md`
+
+If these files conflict with `.cursor/rules/verso.mdc`, the current implementation, or each other, stop and flag the conflict instead of silently choosing one.
+
+Whenever a product direction, architectural decision, integration strategy, or major implementation constraint is changed or finalized, update the relevant documentation as part of the same work.
+
+When a previously documented decision changes, replace or revise the old guidance rather than leaving contradictory historical instructions in place.
+
+Do not rely on chat history as the sole source of important project decisions.
+
+When durable documentation changes:
+
+Update docs/PROJECT.md to reflect product direction, roadmap status, and current/high-level phase outcomes. Keep completed phases concise rather than preserving detailed implementation history.
+Update docs/ARCHITECTURE.md to preserve finalized technical decisions, constraints, tradeoffs, and integration strategies that future work must respect. Replace resolved open questions with the final decision and rationale rather than leaving stale or contradictory guidance.
+Do not use either file as a changelog; Git history is the source of implementation history.

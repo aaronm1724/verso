@@ -1,4 +1,33 @@
-export default function Home() {
+import { getCurrentUserProfile } from "@/lib/spotify/client";
+
+const SPOTIFY_ERROR_MESSAGES: Record<string, string> = {
+  denied: "Spotify authorization was cancelled. Connect again anytime.",
+  state_mismatch:
+    "That connection attempt expired or looked tampered with. Please try again.",
+  callback_failed:
+    "Spotify didn't send back the information Verso needed. Please try again.",
+  token_exchange_failed:
+    "Verso couldn't finish connecting to Spotify. Please try again.",
+};
+
+function resolveSpotifyErrorMessage(code: string | undefined): string | undefined {
+  if (!code) {
+    return undefined;
+  }
+  return (
+    SPOTIFY_ERROR_MESSAGES[code] ??
+    "Something went wrong connecting to Spotify. Please try again."
+  );
+}
+
+export default async function Home({ searchParams }: PageProps<"/">) {
+  const params = await searchParams;
+  const rawError = params.spotify_error;
+  const errorCode = typeof rawError === "string" ? rawError : undefined;
+  const errorMessage = resolveSpotifyErrorMessage(errorCode);
+
+  const profile = await getCurrentUserProfile();
+
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-6 py-16">
       <div className="flex w-full max-w-sm flex-col gap-10">
@@ -32,19 +61,51 @@ export default function Home() {
           </li>
         </ol>
 
-        <div className="flex flex-col gap-2">
-          <button
-            type="button"
-            disabled
-            aria-disabled="true"
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 text-sm font-medium text-white opacity-60 cursor-not-allowed"
-          >
-            Connect Spotify
-          </button>
-          <p className="text-center text-xs text-zinc-500">
-            Spotify connection is coming soon.
+        {errorMessage ? (
+          <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {errorMessage}
           </p>
-        </div>
+        ) : null}
+
+        {profile.ok ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3 rounded-full border border-zinc-800 bg-zinc-900 px-4 py-2">
+              {profile.data.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- external Spotify-hosted avatar; not worth next/image remote-pattern config for one optional Phase 1 thumbnail
+                <img
+                  src={profile.data.imageUrl}
+                  alt=""
+                  className="h-8 w-8 rounded-full object-cover"
+                />
+              ) : null}
+              <span className="text-sm text-zinc-200">
+                Connected as {profile.data.displayName ?? "your Spotify account"}
+              </span>
+            </div>
+            <form action="/api/auth/spotify/logout" method="post">
+              <button
+                type="submit"
+                className="flex h-12 w-full items-center justify-center gap-2 rounded-full border border-zinc-700 px-5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-900"
+              >
+                Disconnect
+              </button>
+            </form>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <a
+              href="/api/auth/spotify/login"
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 text-sm font-medium text-white transition-colors hover:bg-emerald-500"
+            >
+              Connect Spotify
+            </a>
+            {profile.reason === "spotify_request_failed" ? (
+              <p className="text-center text-xs text-zinc-500">
+                Verso couldn&apos;t reach Spotify just now. Try connecting again.
+              </p>
+            ) : null}
+          </div>
+        )}
       </div>
     </main>
   );
