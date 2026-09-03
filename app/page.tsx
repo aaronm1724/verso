@@ -1,4 +1,48 @@
 import { getCurrentUserProfile } from "@/lib/spotify/client";
+import { getCurrentPlayback, type CurrentPlayback } from "@/lib/spotify/playback";
+
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function NowPlaying({ playback }: { playback: CurrentPlayback }) {
+  if (playback.status === "idle") {
+    return <p className="text-sm text-zinc-500">Nothing playing right now.</p>;
+  }
+
+  if (playback.status === "non_track" || playback.status === "unavailable") {
+    return (
+      <p className="text-sm text-zinc-500">
+        Verso can&apos;t show lyrics for what&apos;s currently playing yet.
+      </p>
+    );
+  }
+
+  const { track, progressMs } = playback;
+  return (
+    <div className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900 px-4 py-3">
+      {track.albumImageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- external Spotify-hosted artwork; not worth next/image remote-pattern config for one Phase 2 thumbnail
+        <img
+          src={track.albumImageUrl}
+          alt=""
+          className="h-12 w-12 rounded-lg object-cover"
+        />
+      ) : null}
+      <div className="flex min-w-0 flex-col">
+        <span className="truncate text-sm font-medium text-zinc-100">{track.name}</span>
+        <span className="truncate text-xs text-zinc-400">{track.artistNames.join(", ")}</span>
+        <span className="text-xs text-zinc-500">
+          {playback.status === "playing" ? "Playing" : "Paused"} ·{" "}
+          {formatDuration(progressMs)} / {formatDuration(track.durationMs)}
+        </span>
+      </div>
+    </div>
+  );
+}
 
 const SPOTIFY_ERROR_MESSAGES: Record<string, string> = {
   denied: "Spotify authorization was cancelled. Connect again anytime.",
@@ -27,6 +71,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   const errorMessage = resolveSpotifyErrorMessage(errorCode);
 
   const profile = await getCurrentUserProfile();
+  const playback = profile.ok ? await getCurrentPlayback() : null;
 
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-6 py-16">
@@ -82,6 +127,15 @@ export default async function Home({ searchParams }: PageProps<"/">) {
                 Connected as {profile.data.displayName ?? "your Spotify account"}
               </span>
             </div>
+            {playback ? (
+              playback.ok ? (
+                <NowPlaying playback={playback.data} />
+              ) : (
+                <p className="text-sm text-zinc-500">
+                  Couldn&apos;t check what&apos;s playing right now.
+                </p>
+              )
+            ) : null}
             <form action="/api/auth/spotify/logout" method="post">
               <button
                 type="submit"

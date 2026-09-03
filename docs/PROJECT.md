@@ -130,7 +130,7 @@ Complete.
 
 ### Phase 2 — Current Playback
 
-Current phase.
+Complete.
 
 - identify currently playing track
 
@@ -139,6 +139,8 @@ Current phase.
 - handle paused/no-playback states
 
 ### Phase 3 — Lyrics
+
+Current phase.
 
 - retrieve lyrics through LRCLIB
 

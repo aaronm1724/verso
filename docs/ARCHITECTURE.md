@@ -104,6 +104,27 @@ Next.js Server Components can read cookies during render but cannot persist cook
 
 **Why not client-side or an internal Route Handler fetch:** a Server Component fetching its own new `/api/auth/spotify/me` Route Handler internally cannot forward that handler's `Set-Cookie` onto the outer page response — the persisted cookie would never reach the browser. Moving profile display into a Client Component that fetches that route from the browser would work, but reintroduces the JSON endpoint this plan avoids, adds a loading/flicker state, and is a larger change than one root-level file.
 
+### Phase 2 — current playback
+
+Current playback is read through `GET /v1/me/player`, not `/v1/me/player/currently-playing`. The two endpoints require different scopes (`user-read-playback-state` vs. `user-read-currently-playing`); `/v1/me/player` matches the scope already granted in Phase 1, so no scope change or user re-consent is required, and it already returns everything Phase 2 needs (`item`, `is_playing`, `progress_ms`, `currently_playing_type`).
+
+`/v1/me/player` returns `204 No Content` when there is no active device. `lib/spotify/client.ts`'s `spotifyFetch<T>` handles this generically (`response.status === 204` short-circuits to `{ ok: true, data: null }` before attempting to parse a body) since this is real HTTP behavior any endpoint could exhibit, not something specific to playback. Its return type is `SpotifyRequestResult<T | null>`; `getCurrentUserProfile()` guards against a null `/me` body defensively even though `/me` does not return `204` in practice.
+
+By default, Spotify only populates the `item` field for the default `track` type — a playing podcast episode comes back with `currently_playing_type: "episode"` but `item: null` unless the request opts in with `additional_types`. `playback.ts` requests `/me/player?additional_types=episode` so episodes are represented, and classifies `currently_playing_type` (`episode`/`ad`/`unknown` → `non_track`) **before** checking whether `item` is null — ads and `unknown` never have a representable `item` regardless of `additional_types`, so checking item-nullity first would misclassify Spotify-identified non-track content as `idle`. `idle` is reserved for a true `204`, or `currently_playing_type: "track"` (or an unrecognized value) with a null `item`.
+
+Playback normalization lives in its own module, `lib/spotify/playback.ts`, separate from `client.ts`'s `getCurrentUserProfile()`: the raw shape (nested track/artists/album, a nullable `item`, a `currently_playing_type` discriminator) is materially more complex than `/me`, which justifies a dedicated module now rather than growing `client.ts` into a per-endpoint dumping ground.
+
+`CurrentPlayback` is a five-state domain type:
+
+- `playing` / `paused` — a normalized `SpotifyTrack` plus `progressMs`.
+- `idle` — no active device (`204`), or `currently_playing_type: "track"` (or an unrecognized value) with a null `item`.
+- `non_track` — well-formed playback where `currently_playing_type` is `"episode"`, `"ad"`, or `"unknown"`.
+- `unavailable` — `currently_playing_type: "track"` but the `item` is missing a field Verso requires; kept distinct from `non_track` so a genuinely malformed Spotify response is distinguishable from expected non-track content, even though Phase 2's UI shows both with the same fallback message.
+
+A track normalizes only if it has `id`, `name`, `duration_ms`, and at least one artist with a name — the fields later lyrics/playback-sync phases actually depend on. Album name and artwork are display-only and degrade to `null` on an otherwise-valid track instead of making it `unavailable`.
+
+`app/page.tsx` calls `getCurrentPlayback()` directly as part of the same Server Component render used for the profile chip (only when the profile fetch succeeds) — no new route handler, client component, or polling. This is a static per-request snapshot, the same accepted tradeoff already documented for `/me`. Local playback-position interpolation and periodic re-sync are deliberately deferred to Phase 5.
+
 ## Lyrics
 
 The MVP lyric source is LRCLIB.

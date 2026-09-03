@@ -88,6 +88,18 @@ describe("spotifyFetch", () => {
 
     expect(result).toEqual({ ok: false, reason: "spotify_request_failed" });
   });
+
+  it("returns a successful null result on 204 without attempting to parse a body", async () => {
+    mockedGetValidAccessToken.mockResolvedValue({ ok: true, accessToken: "token-1" });
+    const response = new Response(null, { status: 204 });
+    const jsonSpy = vi.spyOn(response, "json");
+    vi.spyOn(global, "fetch").mockResolvedValue(response);
+
+    const result = await spotifyFetch("/me/player");
+
+    expect(result).toEqual({ ok: true, data: null });
+    expect(jsonSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("getCurrentUserProfile", () => {

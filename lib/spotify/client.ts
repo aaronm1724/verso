@@ -16,7 +16,7 @@ async function requestWithToken(accessToken: string, path: string, init?: Reques
   });
 }
 
-export async function spotifyFetch<T>(path: string, init?: RequestInit): Promise<SpotifyRequestResult<T>> {
+export async function spotifyFetch<T>(path: string, init?: RequestInit): Promise<SpotifyRequestResult<T | null>> {
   const token = await getValidAccessToken();
   if (!token.ok) {
     return token;
@@ -43,6 +43,12 @@ export async function spotifyFetch<T>(path: string, init?: RequestInit): Promise
     return { ok: false, reason: "spotify_request_failed" };
   }
 
+  // A 204 has no body (e.g. /me/player with no active device). response.ok
+  // is true for 204, so this must be checked before parsing JSON.
+  if (response.status === 204) {
+    return { ok: true, data: null };
+  }
+
   const data = (await response.json()) as T;
   return { ok: true, data };
 }
@@ -63,6 +69,12 @@ export async function getCurrentUserProfile(): Promise<SpotifyRequestResult<Spot
   const result = await spotifyFetch<SpotifyMeResponse>("/me");
   if (!result.ok) {
     return result;
+  }
+
+  // /me always returns a body on success; a null here would mean Spotify
+  // sent an unexpected 204, which we treat like any other bad response.
+  if (!result.data) {
+    return { ok: false, reason: "spotify_request_failed" };
   }
 
   return {
