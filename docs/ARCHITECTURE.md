@@ -145,6 +145,31 @@ Do not automatically scrape arbitrary lyric websites as an MVP fallback.
 
 The UI should consume Verso-owned lyric types, not raw LRCLIB response structures.
 
+### Phase 3 — LRCLIB lookup
+
+Lyrics are looked up with a single call to LRCLIB's `GET /api/get`, not `/api/search`. `/api/search` returns up to 20 results with no duration filtering, which would require Verso to build its own disambiguation logic; `/api/get`'s server-enforced duration match (exact, or within ±2 seconds) is the deterministic anti-false-match mechanism instead. The accepted tradeoff is real coverage loss: some tracks findable by hand in LRCLIB's search will surface as `not_found` here. Adding `/api/search` as a fallback would be a deliberate, separately-evaluated decision, not something Phase 3 backs into.
+
+Query parameters sent to `/api/get`:
+
+- `track_name` — Spotify's track name, trimmed only.
+- `artist_name` — the **primary (first) Spotify artist only**, not a joined multi-artist string. LRCLIB stores one artist string per record.
+- `album_name` — Spotify's album name when present, omitted otherwise (recommended, not required).
+- `duration` — `Math.round(track.durationMs / 1000)`.
+
+Titles are passed verbatim — suffixes like "(feat. ...)", "- Remastered 2011", "(Live)", or "(Acoustic)" are never stripped. LRCLIB stores per-recording titles, so an exact title is safer against cross-version false matches than a "cleaned up" string; a genuinely missing version should surface as `not_found`, not a wrong match.
+
+Only `plainLyrics` and the legacy line-synced `syncedLyrics` string are read. LRCLIB's newer `lyricsfile` (YAML) field is deliberately ignored — nothing in the current roadmap needs whatever richer synchronization it offers beyond `syncedLyrics`, and consuming it would add a YAML dependency for no current benefit. Revisiting this is a future, explicit decision.
+
+`syncedLyrics` is parsed into `SyncedLyricLine[]` (`{ startTimeMs: number; text: string }`) now, in `lib/lyrics/syncedLyrics.ts`, rather than deferred to Phase 5 — LRC's `[mm:ss.xx]text` format has one canonical structured representation, and parsing now keeps external format details out of `app/page.tsx`. Trailing timestamp-only lines (empty text) are preserved, not filtered, since they are meaningful end-of-song/gap markers that Phase 5 will need for correct timing. Non-timestamp metadata lines (e.g. `[au: instrumental]`) are silently skipped. If `syncedLyrics` parses to zero usable lines, the result falls back to `plain` (or `unavailable`) rather than ever returning `synced` with an empty `lines` array.
+
+`LyricsResult` is a five-state domain type (`lib/lyrics/types.ts`): `synced`, `plain`, `instrumental`, `not_found`, `unavailable`. `instrumental` is LRCLIB's own explicit flag, not inferred from empty text. `not_found` (a confirmed `404`) and `unavailable` (a record exists but has no usable lyric content) are kept distinct, mirroring the Phase 2 precedent of separating expected non-content from malformed provider data, even though the current UI shows both with the same fallback copy. Request-level failures (network errors, non-404 error statuses, malformed JSON) are a separate `LyricsLookupResult` wrapper with `reason: "lookup_failed"` — LRCLIB requires honoring `429`'s `Retry-After` header if hit, but Phase 3's one-lookup-per-render behavior does not implement an automatic retry/backoff loop; a `429` simply becomes `lookup_failed`.
+
+A `synced` result's `plainText` is LRCLIB's `plainLyrics` when non-empty, otherwise derived by joining the parsed `SyncedLyricLine[]`'s non-empty text with `\n`. This guarantees a valid synced match always carries usable source text for Phase 4 translation without ever being discarded just because `plainLyrics` was unexpectedly null/empty.
+
+LRCLIB is unauthenticated and has none of Spotify's OAuth/session/retry concerns, so `lib/lyrics/lrclib.ts` has no shared HTTP abstraction with `lib/spotify`. It does require a `User-Agent` identifying the client; Verso sends `Verso/<package.json version> (<package.json homepage>)`, reading both values from `package.json` (a real `homepage` field pointing at Verso's GitHub repository) rather than a placeholder.
+
+Lyrics lookup is gated strictly by `CurrentPlayback.status` being `playing` or `paused`, evaluated in the same `app/page.tsx` Server Component render used for playback — no new route, client component, or polling. This is the same static per-request snapshot tradeoff already accepted for `/me` and playback.
+
 ## OpenAI
 
 OpenAI is used for translation only after lyrics have been retrieved.

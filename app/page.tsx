@@ -1,5 +1,7 @@
 import { getCurrentUserProfile } from "@/lib/spotify/client";
 import { getCurrentPlayback, type CurrentPlayback } from "@/lib/spotify/playback";
+import { getLyricsForTrack } from "@/lib/lyrics/lrclib";
+import type { LyricsLookupResult } from "@/lib/lyrics/types";
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -44,6 +46,44 @@ function NowPlaying({ playback }: { playback: CurrentPlayback }) {
   );
 }
 
+const LYRICS_UNAVAILABLE_MESSAGE = "Lyrics not found for this track.";
+
+function Lyrics({ lyrics }: { lyrics: LyricsLookupResult }) {
+  if (!lyrics.ok) {
+    return <p className="text-sm text-zinc-500">Couldn&apos;t fetch lyrics right now.</p>;
+  }
+
+  const { data } = lyrics;
+
+  if (data.status === "instrumental") {
+    return <p className="text-sm text-zinc-500">This track is instrumental.</p>;
+  }
+
+  // not_found and unavailable share fallback copy for now; the distinction
+  // exists in the domain model for future debugging, not the UI.
+  if (data.status === "not_found" || data.status === "unavailable") {
+    return <p className="text-sm text-zinc-500">{LYRICS_UNAVAILABLE_MESSAGE}</p>;
+  }
+
+  if (data.status === "synced") {
+    return (
+      <div className="flex flex-col gap-2 rounded-2xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm leading-relaxed text-zinc-300">
+        {data.lines
+          .filter((line) => line.text.length > 0)
+          .map((line) => (
+            <p key={line.startTimeMs}>{line.text}</p>
+          ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="whitespace-pre-line rounded-2xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm leading-relaxed text-zinc-300">
+      {data.text}
+    </div>
+  );
+}
+
 const SPOTIFY_ERROR_MESSAGES: Record<string, string> = {
   denied: "Spotify authorization was cancelled. Connect again anytime.",
   state_mismatch:
@@ -72,6 +112,11 @@ export default async function Home({ searchParams }: PageProps<"/">) {
 
   const profile = await getCurrentUserProfile();
   const playback = profile.ok ? await getCurrentPlayback() : null;
+  const currentTrack =
+    playback?.ok && (playback.data.status === "playing" || playback.data.status === "paused")
+      ? playback.data.track
+      : null;
+  const lyrics = currentTrack ? await getLyricsForTrack(currentTrack) : null;
 
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-6 py-16">
@@ -136,6 +181,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
                 </p>
               )
             ) : null}
+            {lyrics ? <Lyrics lyrics={lyrics} /> : null}
             <form action="/api/auth/spotify/logout" method="post">
               <button
                 type="submit"

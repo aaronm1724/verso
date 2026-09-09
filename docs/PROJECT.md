@@ -140,17 +140,17 @@ Complete.
 
 ### Phase 3 — Lyrics
 
-Current phase.
+Complete.
 
-- retrieve lyrics through LRCLIB
+- retrieve lyrics through LRCLIB's `GET /api/get`
 
-- prefer synchronized lyrics
+- prefer synchronized lyrics, parsed into timestamped lines
 
-- fall back to plain lyrics
-
-- clean not-found state
+- fall back to plain lyrics, then a clean not-found state
 
 ### Phase 4 — Translation
+
+Current phase.
 
 - target language selection
 

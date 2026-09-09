@@ -2,6 +2,7 @@
   "name": "verso",
   "version": "0.1.0",
   "private": true,
+  "homepage": "https://github.com/aaronm1724/verso",
   "scripts": {
     "dev": "next dev -H 127.0.0.1",
     "build": "next build",
