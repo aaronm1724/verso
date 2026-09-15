@@ -130,17 +130,27 @@ LRCLIB is unauthenticated and has none of Spotify's OAuth/session/retry concerns
 
 Lyrics lookup is gated strictly by `CurrentPlayback.status` being `playing` or `paused`, evaluated in the same `app/page.tsx` Server Component render used for playback — no new route, client component, or polling.
 
-## OpenAI
+## OpenAI translation
 
-OpenAI is used for translation only after lyrics have been retrieved. Do not ask OpenAI to generate or retrieve lyrics.
+OpenAI is used only to translate lyrics already retrieved from LRCLIB — never to generate, retrieve, or invent lyric text. `app/page.tsx` never imports `openai` or touches raw Structured Outputs shapes; it renders Verso-owned `TranslationLookupResult` values from `lib/translation/`.
 
-When introduced:
+**API surface:** the Responses API's `client.responses.parse()`, with Structured Outputs (`text.format`) built from a Zod schema via the SDK's `zodTextFormat` helper (`openai/helpers/zod`) — no manual JSON Schema authoring or hand-rolled response parsing.
 
-- use Structured Outputs
-- validate results with Zod
-- keep the model configurable through environment configuration
-- preserve the original lyric separately
-- do not fabricate missing lines or metadata
+**Client construction:** `new OpenAI()` throws synchronously if `OPENAI_API_KEY` is empty/missing. The client is therefore constructed lazily inside `lib/translation/openai.ts`'s `translateLyrics()`, only after `OPENAI_API_KEY` and `OPENAI_TRANSLATION_MODEL` are both explicitly validated — never at module scope. Missing/empty config short-circuits to `{ ok: false, reason: "config_error" }` before any client is constructed or network call attempted.
+
+**Domain model** (`lib/translation/types.ts`): `TranslatedLyricLine` (`sourceIndex`, `translatedText`), `TranslationResult` (`sourceLanguage`, `targetLanguage`, `lines`), and `TranslationLookupResult` discriminating `config_error` / `request_failed` / `invalid_response` / `refused` — kept distinct internally (mirroring the Phase 3 `not_found`/`unavailable` precedent) even though the UI shows one generic failure message for all four.
+
+**Line-index alignment invariant:** every source line (synced or plain, blanks included) is sent to the model tagged with its array index, and the model is instructed to return exactly one output line per input line, in the same order, with the same `sourceIndex`, and `translatedText: ""` for blank input lines. The prompt instruction is not what guarantees correctness — `translateLyrics()` independently validates after parsing that the returned array length matches the input length and that `lines[i].sourceIndex === i` for every `i`; any mismatch becomes `invalid_response` rather than trusting the model's self-reported index. This guarantees `TranslatedLyricLine[i]` corresponds to the source line at position `i` by construction, which Phase 5 will rely on to pair a translated line with its `SyncedLyricLine.startTimeMs` without re-running translation.
+
+**Source-language metadata:** `sourceLanguage` is a lowercase two-letter (ISO 639-1-shaped) string, format-enforced via Structured Outputs' `pattern` string constraint (part of the supported strict-mode JSON Schema subset, so the model cannot emit a non-matching shape). This is **best-effort model-reported metadata only** — its format is enforced, its semantic correctness is not verified, and translation success never depends on it. Its only consumer is a lightweight "Already in {language}" UX note when it equals the requested target language.
+
+**Target-language strategy:** a small fixed set of supported languages (`lib/translation/languages.ts`, defaulting to English) selected via a stateless `?lang=` query param on `/`, the same `searchParams` pattern already used for `spotify_error`. An unsupported/missing code falls back to the default rather than erroring. No persisted preference yet (Phase 6).
+
+**Execution boundary — Suspense-streamed, not blocking:** `app/page.tsx`'s `Home` awaits profile → playback → lyrics exactly as in Phase 2/3 (all fast, free) and renders track info and original lyrics immediately. Source-line extraction (`extractSourceLines()`, pure/synchronous) happens in `Home` itself so a translation `<Suspense>` boundary — and the OpenAI call inside it — is only ever rendered when there is genuinely translatable content. The actual `translateLyrics()` call lives inside a separate async Server Component (`TranslationSection`) wrapped in `<Suspense>`, so Next.js streams the already-resolved shell first and streams in the translated lines once the OpenAI call resolves, instead of blocking the whole response on it. No client component, no Route Handler, no client-side OpenAI fetching — translation is fully server-side.
+
+**Model/config strategy:** the model is read from `OPENAI_TRANSLATION_MODEL` with no hardcoded fallback (unset → `config_error`); recommended development value is `gpt-5.6-luna`, OpenAI's own guidance for cost-sensitive, high-volume workloads, which matches Phase 4's uncached, one-call-per-render pattern. Request config in `lib/translation/openai.ts`: `reasoning: { effort: "none" }` (GPT-5.6 rejects `"minimal"` outright with a 400; `"none"` is the lowest supported rung and fully disables reasoning for this bounded, schema-constrained task — must use the nested Responses API shape, not the flat Chat Completions `reasoning_effort` field), `text.verbosity: "low"`, and an explicit `max_output_tokens: 6000` (sized for a full song with headroom; costs nothing extra unless actually used, since `reasoning: none` leaves the whole budget available for real content). If a different model is configured, verify it accepts these fields — this is not runtime-validated.
+
+**No caching in Phase 4:** every render with translatable lyrics makes a fresh OpenAI call — a real per-call dollar cost, not just latency, unlike the free Spotify/LRCLIB calls. There is exactly one `translateLyrics()` call site per request (inside the single Suspense-wrapped component), so a request-scoped dedup wrapper (React's `cache()`) would add code with no actual benefit and is deliberately not used. Cross-request reuse would need `"use cache"`/Cache Components (a broader rendering-model opt-in) or persistent storage, and even the default `"use cache"` in-memory handler is documented as ephemeral per serverless instance in production — not reliable enough to solve this without real infrastructure. Proper reusable translation caching, keyed on source lyrics + target language + model, is deferred to **Phase 6** once persistence exists.
 
 ## Database
 

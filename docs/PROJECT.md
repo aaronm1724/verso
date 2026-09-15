@@ -150,19 +150,19 @@ Complete.
 
 ### Phase 4 — Translation
 
-Current phase.
+Complete.
 
 - target language selection
 
-- OpenAI translation
+- OpenAI translation via Structured Outputs + Zod
 
-- Structured Outputs
+- server-only translation boundary, Suspense-streamed so original lyrics never wait on OpenAI
 
-- Zod validation
-
-- original + translation UI
+- original + translation UI, line-level alignment preserved for Phase 5
 
 ### Phase 5 — Playback-Aligned Lyrics
+
+Current phase.
 
 - highlight current lyric
 
