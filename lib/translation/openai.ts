@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 
+import { createDevLogger } from "../dev";
 import { isSupportedLanguageCode } from "./languages";
 import { LyricsTranslationSchema, type LyricsTranslationPayload } from "./schema";
 import type { TranslatedLyricLine, TranslationLookupResult } from "./types";
@@ -30,21 +31,14 @@ function readRequiredEnv(name: string): string | null {
 
 const isDev = process.env.NODE_ENV === "development";
 
-// Development-only diagnostics. Never enabled in production, and never
-// given lyric text, prompts, translations, secrets, or raw responses — only
-// which failure branch was hit and small, non-sensitive shape/metadata
-// about why. The user-facing result stays a single generic message
-// regardless of what's logged here. console.log, not console.error: every
-// branch here is an expected, categorized outcome represented by
-// TranslationLookupResult, not an application error, and Next.js dev
-// tooling surfaces server-side console.error output to the browser as a
-// red error overlay.
-function devLog(event: string, details?: Record<string, unknown>): void {
-  if (!isDev) {
-    return;
-  }
-  console.log(`[translateLyrics] ${event}`, details ?? "");
-}
+// Development-only diagnostics. Never given lyric text, prompts,
+// translations, secrets, or raw responses — only which failure branch was
+// hit and small, non-sensitive shape/metadata about why. The user-facing
+// result stays a single generic message regardless of what's logged here.
+// Every branch here is an expected, categorized outcome represented by
+// TranslationLookupResult, not an application error, so this only ever
+// uses devLog (console.log), never devError.
+const { devLog } = createDevLogger("translateLyrics");
 
 function describeThrownError(error: unknown): Record<string, unknown> {
   if (error instanceof Error) {

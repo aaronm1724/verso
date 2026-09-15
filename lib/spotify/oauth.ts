@@ -1,3 +1,5 @@
+import { requiredEnv } from "./env";
+
 const AUTHORIZE_URL = "https://accounts.spotify.com/authorize";
 const TOKEN_URL = "https://accounts.spotify.com/api/token";
 
@@ -6,14 +8,6 @@ const TOKEN_URL = "https://accounts.spotify.com/api/token";
 // user-read-playback-state is pre-requested now because Phase 2 needs it with
 // confidence and re-consent would otherwise be required.
 export const SPOTIFY_SCOPES = "user-read-playback-state";
-
-function requiredEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value;
-}
 
 function basicAuthHeader(): string {
   const clientId = requiredEnv("SPOTIFY_CLIENT_ID");

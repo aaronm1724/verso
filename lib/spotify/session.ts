@@ -1,6 +1,8 @@
 import { cookies } from "next/headers";
 import { getIronSession, type IronSession, type SessionOptions } from "iron-session";
 import type { NextRequest, NextResponse } from "next/server";
+import { cache } from "react";
+import { requiredEnv } from "./env";
 import { refreshAccessToken } from "./oauth";
 
 export type SpotifySession = {
@@ -16,14 +18,6 @@ type SessionData = {
 export const SESSION_COOKIE_NAME = "verso_session";
 const REFRESH_MARGIN_MS = 60_000;
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
-
-function requiredEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value;
-}
 
 function sessionOptions(): SessionOptions {
   return {
@@ -117,7 +111,18 @@ export type AccessTokenResult =
   | { ok: true; accessToken: string }
   | { ok: false; reason: "reauth_required" };
 
-export async function getValidAccessToken(): Promise<AccessTokenResult> {
+// cache() deduplicates repeated calls to a no-argument function within one
+// React render pass — here, one Server Component request/response cycle.
+// Without it, getCurrentUserProfile() and getCurrentPlayback() each
+// independently re-unseal the session cookie and, near token expiry, each
+// independently hit Spotify's token endpoint for what should be a single
+// refresh. This never persists across requests: Next.js gives every render
+// pass its own cache() scope, and the wrapped function itself still reads
+// the request's cookies fresh each time a *new* render calls it. This scope
+// is unrelated to proxy.ts, which runs earlier, outside any React render
+// tree — its own proactive refresh is a separate, uncoordinated path from
+// this one, not something this cache() call also dedupes against.
+export const getValidAccessToken = cache(async (): Promise<AccessTokenResult> => {
   const session = await getSessionFromHeaders();
   if (!session.spotify) {
     return { ok: false, reason: "reauth_required" };
@@ -136,11 +141,15 @@ export async function getValidAccessToken(): Promise<AccessTokenResult> {
   }
 
   return { ok: true, accessToken: result.accessToken };
-}
+});
 
 // Used by client.ts after an unexpected 401: always refreshes regardless of
 // the proactive margin, since the cached expiry can no longer be trusted.
-export async function forceRefreshAccessToken(): Promise<AccessTokenResult> {
+// Also cache()-deduplicated: if two calls in the same request both see the
+// unexpected 401 (they now share the same token via getValidAccessToken
+// above, so this is more likely than before), only one actually calls
+// Spotify's token endpoint — the second reuses that result.
+export const forceRefreshAccessToken = cache(async (): Promise<AccessTokenResult> => {
   const session = await getSessionFromHeaders();
   if (!session.spotify) {
     return { ok: false, reason: "reauth_required" };
@@ -156,7 +165,7 @@ export async function forceRefreshAccessToken(): Promise<AccessTokenResult> {
   await bestEffortPersist(() => session.save());
 
   return { ok: true, accessToken: refreshed.session.accessToken };
-}
+});
 
 export async function saveSpotifySession(spotify: SpotifySession): Promise<void> {
   const session = await getSessionFromHeaders();

@@ -10,7 +10,9 @@ vi.mock("@/lib/translation/openai", () => ({ translateLyrics }));
 // can be awaited directly to get its resolved element tree without going
 // through React's Suspense/streaming machinery — matching how Next.js
 // itself resolves it before handing a synchronous tree to the renderer.
-import { Lyrics, TranslationPending, TranslationSection } from "./page";
+// Lyrics/TranslatedLines/TranslationPending/TranslationUnavailable render
+// tests live in app/LyricsDisplay.test.tsx, next to that module.
+import { TranslationSection } from "./page";
 
 const syncedLyrics: LyricsLookupResult = {
   ok: true,
@@ -25,19 +27,6 @@ const syncedLyrics: LyricsLookupResult = {
   },
 };
 
-const plainLyrics: LyricsLookupResult = {
-  ok: true,
-  data: {
-    status: "plain",
-    text: "Hola mundo\n\nAdios",
-  },
-};
-
-const failedLookup: LyricsLookupResult = {
-  ok: false,
-  reason: "lookup_failed",
-};
-
 const baseSectionInput = {
   lyrics: syncedLyrics,
   sourceLines: ["Hola mundo", "", "Adios"],
@@ -48,29 +37,6 @@ const baseSectionInput = {
 
 beforeEach(() => {
   translateLyrics.mockReset();
-});
-
-describe("Lyrics", () => {
-  it("renders each non-blank original line exactly once for synced lyrics", () => {
-    const html = renderToStaticMarkup(<Lyrics lyrics={syncedLyrics} />);
-
-    expect(html).toContain("Hola mundo");
-    expect(html).toContain("Adios");
-    expect(html.match(/Hola mundo/g)).toHaveLength(1);
-  });
-
-  it("renders plain lyric text for a successful plain LyricsLookupResult", () => {
-    const html = renderToStaticMarkup(<Lyrics lyrics={plainLyrics} />);
-
-    expect(html).toContain("Hola mundo");
-    expect(html).toContain("Adios");
-  });
-
-  it("renders the Phase 3 lyric failure state for a failed lookup, not a crash", () => {
-    const html = renderToStaticMarkup(<Lyrics lyrics={failedLookup} />);
-
-    expect(html).toContain("Couldn&#x27;t fetch lyrics right now.");
-  });
 });
 
 describe("TranslationSection", () => {
@@ -117,34 +83,5 @@ describe("TranslationSection", () => {
     expect(html.match(/Hola mundo/g)).toHaveLength(1);
     expect(html.match(/Adios/g)).toHaveLength(1);
     expect(html).toContain("Couldn&#x27;t translate lyrics right now.");
-  });
-});
-
-describe("TranslationPending", () => {
-  it("renders an indeterminate 'Translating to {language}…' status before the original lyrics, no fake percentage", () => {
-    const html = renderToStaticMarkup(
-      <TranslationPending lyrics={syncedLyrics} targetLanguageCode="en" />,
-    );
-
-    expect(html.match(/Hola mundo/g)).toHaveLength(1);
-    expect(html.match(/Adios/g)).toHaveLength(1);
-    expect(html).toContain("Translating to English");
-    expect(html).not.toMatch(/%/);
-
-    // Below full-length lyrics, a status placed after the lyric block would
-    // be scrolled out of view — it must render first in document order.
-    const statusIndex = html.indexOf("Translating to English");
-    const lyricsIndex = html.indexOf("Hola mundo");
-    expect(statusIndex).toBeGreaterThan(-1);
-    expect(lyricsIndex).toBeGreaterThan(-1);
-    expect(statusIndex).toBeLessThan(lyricsIndex);
-  });
-
-  it("renders role=\"status\" on the pending indicator", () => {
-    const html = renderToStaticMarkup(
-      <TranslationPending lyrics={syncedLyrics} targetLanguageCode="en" />,
-    );
-
-    expect(html).toContain('role="status"');
   });
 });
