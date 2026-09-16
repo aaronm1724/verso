@@ -1,13 +1,12 @@
 import { createDevLogger } from "@/lib/dev";
-import type { LyricsLookupResult } from "@/lib/lyrics/types";
+import type { LyricsLookupResult, SyncedLyricLine } from "@/lib/lyrics/types";
 import { getLanguageLabel } from "@/lib/translation/languages";
-import type { TranslationResult } from "@/lib/translation/types";
+import type { TranslatedLyricLine, TranslationResult } from "@/lib/translation/types";
 
 // Pure presentation for the lyric/translation region — no data fetching, no
 // OpenAI/Spotify imports. Kept separate from app/page.tsx's orchestration
-// (Home, TranslationSection) so Phase 5's client-side playback-following
-// work has a small, already-isolated rendering boundary to build against
-// instead of extracting it out of a much larger file at that point.
+// (Home, TranslationSection) so SyncedLyricsPlayer can consume a small
+// display-shaped line list without pulling Spotify/OpenAI into the client.
 
 const { devLog } = createDevLogger("page");
 
@@ -51,6 +50,23 @@ export function Lyrics({ lyrics }: { lyrics: LyricsLookupResult }) {
 }
 
 const TRANSLATION_FAILURE_MESSAGE = "Couldn't translate lyrics right now.";
+
+export type DisplayLyricLine = {
+  startTimeMs: number;
+  originalText: string;
+  translatedText: string;
+};
+
+export function zipDisplayLyricLines(
+  syncedLines: SyncedLyricLine[],
+  translatedLines: TranslatedLyricLine[],
+): DisplayLyricLine[] {
+  return syncedLines.map((line, index) => ({
+    startTimeMs: line.startTimeMs,
+    originalText: line.text,
+    translatedText: translatedLines[index]?.translatedText ?? "",
+  }));
+}
 
 export function TranslatedLines({
   data,

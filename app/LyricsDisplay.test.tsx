@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { LyricsLookupResult } from "@/lib/lyrics/types";
 import type { TranslationResult } from "@/lib/translation/types";
 
-import { Lyrics, TranslatedLines, TranslationPending, TranslationUnavailable } from "./LyricsDisplay";
+import { Lyrics, TranslatedLines, TranslationPending, TranslationUnavailable, zipDisplayLyricLines } from "./LyricsDisplay";
 
 const syncedLyrics: LyricsLookupResult = {
   ok: true,
@@ -82,6 +82,34 @@ describe("TranslatedLines", () => {
     );
 
     expect(html).toContain("Already in English");
+  });
+});
+
+describe("zipDisplayLyricLines", () => {
+  it("pairs synced timestamps with translated text by array position, including blanks", () => {
+    expect(
+      zipDisplayLyricLines(
+        [
+          { startTimeMs: 0, text: "Hola mundo" },
+          { startTimeMs: 1000, text: "" },
+          { startTimeMs: 2000, text: "Adios" },
+        ],
+        [
+        { sourceIndex: 0, translatedText: "Hello world" },
+        { sourceIndex: 1, translatedText: "" },
+        { sourceIndex: 2, translatedText: "Goodbye" },
+      ]),
+    ).toEqual([
+      { startTimeMs: 0, originalText: "Hola mundo", translatedText: "Hello world" },
+      { startTimeMs: 1000, originalText: "", translatedText: "" },
+      { startTimeMs: 2000, originalText: "Adios", translatedText: "Goodbye" },
+    ]);
+  });
+
+  it("uses an empty translated string when a source line has no pair", () => {
+    expect(
+      zipDisplayLyricLines([{ startTimeMs: 0, text: "Solo" }], []),
+    ).toEqual([{ startTimeMs: 0, originalText: "Solo", translatedText: "" }]);
   });
 });
 

@@ -74,6 +74,21 @@ describe("getLyricsForTrack", () => {
     expect(result).toEqual({ ok: true, data: { status: "plain", text: "Plain text only" } });
   });
 
+  it("strips per-line ^translation suffixes from plain lyrics without collapsing the rest of the song", async () => {
+    mockLrclibResponse({
+      instrumental: false,
+      plainLyrics: "Otra vez me llamaste^You called me again\nSiguiente linea",
+      syncedLyrics: null,
+    });
+
+    const result = await getLyricsForTrack(track);
+
+    expect(result).toEqual({
+      ok: true,
+      data: { status: "plain", text: "Otra vez me llamaste\nSiguiente linea" },
+    });
+  });
+
   it("returns instrumental regardless of lyric text content", async () => {
     mockLrclibResponse({ instrumental: true, plainLyrics: "should be ignored", syncedLyrics: null });
 

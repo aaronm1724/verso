@@ -84,7 +84,7 @@ Next.js Server Components can read cookies during render but cannot persist cook
 
 **Bounded unexpected-401 behavior:** if Spotify returns an unexpected `401` during a Server Component's own Spotify request (e.g. `page.tsx`'s `/v1/me` call) despite `proxy.ts` having just validated the token, `lib/spotify/client.ts` still forces exactly one refresh and one retry, using the refreshed token for that render. The persistence attempt is best-effort — if the context disallows cookie mutation, it is skipped rather than treated as a fatal error. This is safe because Verso uses the standard (non-PKCE) Authorization Code flow, where Spotify does not invalidate a refresh token when a new one is issued: the still-cookie-stored refresh token remains valid, and the next request through `proxy.ts` persists the corrected session.
 
-**Request-scoped token/session memoization:** `lib/spotify/session.ts`'s `getValidAccessToken()` and `forceRefreshAccessToken()` are wrapped in React's `cache()`, scoped to the single Server Component render/request that calls them. Within that one render, every caller — currently `getCurrentUserProfile()`'s and `getCurrentPlayback()`'s `spotifyFetch()` calls — shares one memoized session-cookie unseal and, near expiry, one shared refresh; neither caller independently re-unseals the cookie or hits Spotify's token endpoint a second time. The same applies to `forceRefreshAccessToken()`: multiple unexpected-401 retries within one render share a single forced refresh. This does not persist across separate browser/server requests — each new render gets its own `cache()` scope, and the wrapped functions still read that request's cookies fresh. **This is deliberately narrow: it does not claim, and does not need, any coordination with `proxy.ts`.** `proxy.ts` runs before the page renders, in a plain middleware/route-matching context with no React render tree and therefore no `cache()` scope of its own — its proactive refresh (above) and this render-scoped memoization are two separate, uncoordinated refresh paths, exactly as before this change. This matters more once Phase 5 adds more per-request Spotify calls (periodic re-sync) on top of the two that already exist.
+**Request-scoped token/session memoization:** `lib/spotify/session.ts`'s `getValidAccessToken()` and `forceRefreshAccessToken()` are wrapped in React's `cache()`, scoped to the single Server Component render/request that calls them. Within that one render, every caller — currently `getCurrentUserProfile()`'s and `getCurrentPlayback()`'s `spotifyFetch()` calls — shares one memoized session-cookie unseal and, near expiry, one shared refresh; neither caller independently re-unseals the cookie or hits Spotify's token endpoint a second time. The same applies to `forceRefreshAccessToken()`: multiple unexpected-401 retries within one render share a single forced refresh. This does not persist across separate browser/server requests — each new render gets its own `cache()` scope, and the wrapped functions still read that request's cookies fresh. **This is deliberately narrow: it does not claim, and does not need, any coordination with `proxy.ts`.** `proxy.ts` runs before the page renders, in a plain middleware/route-matching context with no React render tree and therefore no `cache()` scope of its own — its proactive refresh (above) and this render-scoped memoization are two separate, uncoordinated refresh paths, exactly as before this change. Browser-driven playback polls (`GET /api/playback/current`) are separate Route Handler requests, each with their own `cache()` scope and a single internal caller (`getCurrentPlayback()` → `getValidAccessToken()`), so there is nothing to deduplicate there. Unlike a Server Component render, a Route Handler *can* persist a refreshed session cookie, so a token refresh triggered by a poll sticks without relying on `proxy.ts`'s `/`-only matcher.
 
 ### Current playback
 
@@ -105,7 +105,44 @@ Playback normalization lives in its own module, `lib/spotify/playback.ts`, separ
 
 A track normalizes only if it has `id`, `name`, `duration_ms`, and at least one artist with a name. Album name/artwork are display-only and degrade to `null` on an otherwise-valid track instead of making it `unavailable`.
 
-`app/page.tsx` calls `getCurrentPlayback()` directly in the same Server Component render used for the profile chip (only when the profile fetch succeeds) — a static per-request snapshot, no polling. Local playback-position interpolation and periodic re-sync are deferred to Phase 5.
+`app/page.tsx` calls `getCurrentPlayback()` directly in the same Server Component render used for the profile chip (only when the profile fetch succeeds). That value is the initial snapshot for the page; live follow uses the client poll loop described under Playback-aligned lyrics below. Tokens still never leave the server.
+
+## Playback-aligned lyrics
+
+Playback monitoring and lyric highlighting are split across two Client Components. `Home()` stays a Server Component. Unauthenticated users do not mount a monitor and do not poll.
+
+**`PlaybackMonitor`** (`app/PlaybackMonitor.tsx`) wraps the authenticated UI (idle, non-track, plain lyrics, lyric-unavailable, and synced). It owns the **only** `GET /api/playback/current` poll loop, a `visibilitychange` resync, `resolvePollOutcome()`, and the in-flight `router.refresh()` guard. It provides a tiny React context of the latest successful snapshot: `{ progressMs, isPlaying, receivedAtMs, trackId, durationMs }`. No tokens, no raw Spotify JSON.
+
+**`SyncedLyricsPlayer`** (`app/SyncedLyricsPlayer.tsx`) mounts only after translation resolves for **synced** lyrics. It owns the **250ms interpolation tick**, active-index, highlighting, and auto-scroll. It does not fetch. It consumes snapshots from `PlaybackMonitor` context. `<SyncedLyricsPlayer key={trackId} />` remounts on track change.
+
+**Poll endpoint:** `GET /api/playback/current` is a thin Route Handler around `getCurrentPlayback()`. It returns `SpotifyRequestResult<CurrentPlayback>` JSON — already Verso-owned and serializable, with no session secrets. A Route Handler is the right shape for a periodic, idempotent, read-only poll; a Server Action would add POST-oriented indirection with no benefit.
+
+**Cadence (one loop, two intervals, chosen from the currently rendered lyric/playback mode):**
+
+- **3s** while a synced track is on screen (playing or paused)
+- **5s watch-only** for every other authenticated state (plain, instrumental, not_found, unavailable, lookup_failed, idle, non_track, unavailable playback)
+- **250ms** local tick only inside `SyncedLyricsPlayer`
+- **zero** polls when logged out
+
+**Interpolation** (`lib/lyrics/playbackSync.ts`): while playing, `estimatedProgressMs = progressMs + (now - receivedAtMs)`, clamped to `[0, durationMs]`; while paused, `progressMs` is frozen. Active line is the last index with `startTimeMs <= positionMs` (binary search). Blank/gap lines remain addressable indices and simply render as nothing highlighted. After ~10s without a successful snapshot, interpolation freezes at the last computed position rather than drifting; polling keeps retrying at the normal cadence; the next good snapshot resumes immediately.
+
+**`resolvePollOutcome`** (`lib/spotify/playbackTransition.ts`) maps `{ renderedTrackId, renderedPlaybackStatus }` plus the latest poll result to:
+
+- **update_baseline** — same `trackId`, status `playing` or `paused` in any combination (pause/resume/seek). Publish the snapshot. Never `router.refresh()`.
+- **refresh** — `trackId` differs (including `null` → a new id when idle/non_track becomes a track); rendered page vs `idle` / `non_track` / `unavailable` change; `reauth_required`.
+- **ignore** — transient `ok: false` (e.g. `spotify_request_failed`). Synced interpolation applies the 10s stale freeze if snapshots stop arriving.
+
+**Refresh-in-flight guard:** `hasRequestedRefreshRef` on `PlaybackMonitor`. The first `refresh` outcome sets the flag, calls `router.refresh()` once, and clears the poll interval. The flag is not cleared if the poll effect re-runs (React Strict Mode in development, or a `pollIntervalMs` change): that would issue a second refresh and abort the still-streaming RSC payload. The monitor is keyed by rendered track id + playback status so the replacement tree starts a fresh loop. Same-track pause/resume/seek never refresh.
+
+Track-change refreshes overlap a long-lived Suspense stream (`TranslationSection` / OpenAI). If the client aborts that stream — including a superseded duplicate refresh — Next.js 16.3 can log `Error: The destination stream closed early` from its RSC pipe. That is a client-aborted stream, not an application throw. Do not swallow it in app code.
+
+**Manual scroll:** auto-follow pauses on a user scroll (programmatic `scrollIntoView` is suppressed via a short window) and stays off until the user taps **Resume following** or the track changes. Highlighting continues while follow is paused. The control is a viewport-fixed, bottom-centered pill (`position: fixed`) so it stays visible after scrolling, with extra lyric-block padding so the last lines can sit above it.
+
+**Suspense / Option A:** the Phase 4 `<Suspense fallback={<TranslationPending/>}><TranslationSection/></Suspense>` boundary is unchanged. `PlaybackMonitor` wraps it, so polling continues during pending translation. Live highlighting does **not** start until translation resolves and `SyncedLyricsPlayer` mounts — accepted product tradeoff rather than hoisting highlight state across the Suspense boundary. During that window original lyrics stay visible but static. When the player mounts it reads the current context snapshot rather than only the stale `Home()` snapshot.
+
+**Plain fallback:** `status === "plain"` still renders `TranslatedLines`. No 250ms tick. `PlaybackMonitor` stays mounted on the 5s watch cadence. Same for instrumental / not_found / unavailable / lookup_failed.
+
+**Display alignment:** `TranslationSection` zips `SyncedLyricLine[]` with `TranslationResult.lines` by array position (already guaranteed 1:1 by `validateAlignment()`) into `DisplayLyricLine` in `app/LyricsDisplay.tsx` — a UI shape, not a service domain type.
 
 ## LRCLIB lyric retrieval
 
@@ -122,7 +159,9 @@ Query parameters sent to `/api/get`:
 
 Only `plainLyrics` and the legacy line-synced `syncedLyrics` string are read. LRCLIB's newer `lyricsfile` (YAML) field is deliberately ignored — do not add YAML parsing to consume it without a separate, explicit decision.
 
-`syncedLyrics` is parsed into `SyncedLyricLine[]` (`{ startTimeMs: number; text: string }`) in `lib/lyrics/syncedLyrics.ts`. Trailing timestamp-only lines (empty text) are preserved, not filtered — they are meaningful end-of-song/gap markers that playback-sync work will need for correct timing. Non-timestamp metadata lines (e.g. `[au: instrumental]`) are silently skipped. If `syncedLyrics` parses to zero usable lines, the result falls back to `plain` (or `unavailable`) rather than ever returning `synced` with an empty `lines` array.
+`syncedLyrics` is parsed into `SyncedLyricLine[]` (`{ startTimeMs: number; text: string }`) in `lib/lyrics/syncedLyrics.ts`. Trailing timestamp-only lines (empty text) are preserved, not filtered — they are meaningful end-of-song/gap markers that playback-aligned highlighting uses as un-highlighted windows. Non-timestamp metadata lines (e.g. `[au: instrumental]`) are silently skipped. If `syncedLyrics` parses to zero usable lines, the result falls back to `plain` (or `unavailable`) rather than ever returning `synced` with an empty `lines` array.
+
+Some LRCLIB records embed a non-standard Traly/Huawei bilingual suffix on the same line (`original^translation`). That is contributor content, not something Verso's parser invents. After timestamp parse (and per line for `plainLyrics`), Verso keeps the sung original when both sides of the first `^` are non-empty, so the embedded translation is not shown as source text and is not sent to OpenAI. A lone `^` with no text on one side is left unchanged.
 
 `LyricsResult` is a five-state domain type (`lib/lyrics/types.ts`): `synced`, `plain`, `instrumental` (LRCLIB's own explicit flag, never inferred from empty text), `not_found` (a confirmed `404`), and `unavailable` (a record exists but has no usable lyric content — kept distinct from `not_found` even though the UI currently shows the same fallback copy). Request-level failures (network errors, non-404 error statuses, malformed JSON) use a separate `LyricsLookupResult` wrapper with `reason: "lookup_failed"`. LRCLIB requires honoring `429`'s `Retry-After` header if hit; the current one-lookup-per-render behavior does not implement an automatic retry/backoff loop — a `429` simply becomes `lookup_failed`.
 
@@ -130,7 +169,7 @@ A `synced` result's `plainText` is LRCLIB's `plainLyrics` when non-empty, otherw
 
 LRCLIB is unauthenticated and has none of Spotify's OAuth/session/retry concerns, so `lib/lyrics/lrclib.ts` shares no HTTP abstraction with `lib/spotify`. It requires a `User-Agent` identifying the client; Verso sends `Verso/<package.json version> (<package.json homepage>)`, reading both values from `package.json` (a real `homepage` field pointing at Verso's GitHub repository).
 
-Lyrics lookup is gated strictly by `CurrentPlayback.status` being `playing` or `paused`, evaluated in the same `app/page.tsx` Server Component render used for playback — no new route, client component, or polling.
+Lyrics lookup is gated strictly by `CurrentPlayback.status` being `playing` or `paused`, evaluated in the same `app/page.tsx` Server Component render used for playback. LRCLIB is not polled; when Spotify's track/content changes, `PlaybackMonitor` triggers `router.refresh()` and Home fetches lyrics again.
 
 ## OpenAI translation
 
@@ -142,7 +181,7 @@ OpenAI is used only to translate lyrics already retrieved from LRCLIB — never 
 
 **Domain model** (`lib/translation/types.ts`): `TranslatedLyricLine` (`sourceIndex`, `translatedText`), `TranslationResult` (`sourceLanguage`, `targetLanguage`, `lines`), and `TranslationLookupResult` discriminating `config_error` / `request_failed` / `invalid_response` / `refused` — kept distinct internally (mirroring the Phase 3 `not_found`/`unavailable` precedent) even though the UI shows one generic failure message for all four.
 
-**Line-index alignment invariant:** every source line (synced or plain, blanks included) is sent to the model tagged with its array index, and the model is instructed to return exactly one output line per input line, in the same order, with the same `sourceIndex`, and `translatedText: ""` for blank input lines. The prompt instruction is not what guarantees correctness — `translateLyrics()` independently validates after parsing that the returned array length matches the input length and that `lines[i].sourceIndex === i` for every `i`; any mismatch becomes `invalid_response` rather than trusting the model's self-reported index. This guarantees `TranslatedLyricLine[i]` corresponds to the source line at position `i` by construction, which Phase 5 will rely on to pair a translated line with its `SyncedLyricLine.startTimeMs` without re-running translation.
+**Line-index alignment invariant:** every source line (synced or plain, blanks included) is sent to the model tagged with its array index, and the model is instructed to return exactly one output line per input line, in the same order, with the same `sourceIndex`, and `translatedText: ""` for blank input lines. The prompt instruction is not what guarantees correctness — `translateLyrics()` independently validates after parsing that the returned array length matches the input length and that `lines[i].sourceIndex === i` for every `i`; any mismatch becomes `invalid_response` rather than trusting the model's self-reported index. This guarantees `TranslatedLyricLine[i]` corresponds to the source line at position `i` by construction, so playback-aligned display can zip a translated line with `SyncedLyricLine.startTimeMs` by array position without re-running translation.
 
 **Source-language metadata:** `sourceLanguage` is a lowercase two-letter (ISO 639-1-shaped) string, format-enforced via Structured Outputs' `pattern` string constraint (part of the supported strict-mode JSON Schema subset, so the model cannot emit a non-matching shape). This is **best-effort model-reported metadata only** — its format is enforced, its semantic correctness is not verified, and translation success never depends on it. Its only consumer is a lightweight "Already in {language}" UX note when it equals the requested target language.
 

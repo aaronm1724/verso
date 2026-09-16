@@ -1,6 +1,6 @@
 import packageJson from "../../package.json";
 import type { SpotifyTrack } from "../spotify/playback";
-import { parseSyncedLyrics } from "./syncedLyrics";
+import { parseSyncedLyrics, stripInlineLrcTranslation } from "./syncedLyrics";
 import type { LyricsLookupResult, LyricsResult } from "./types";
 
 const LRCLIB_BASE_URL = "https://lrclib.net/api";
@@ -40,7 +40,10 @@ function normalizeLrclibResponse(data: LrclibGetResponse): LyricsResult {
     return { status: "instrumental" };
   }
 
-  const plainLyrics = data.plainLyrics?.trim() ?? "";
+  const plainLyrics = (data.plainLyrics?.trim() ?? "")
+    .split("\n")
+    .map((line) => stripInlineLrcTranslation(line))
+    .join("\n");
   const syncedLines = data.syncedLyrics ? parseSyncedLyrics(data.syncedLyrics) : [];
 
   if (syncedLines.length > 0) {

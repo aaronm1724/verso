@@ -17,7 +17,7 @@ export function extractSourceLines(lyrics: LyricsLookupResult): string[] | null 
   let lines: string[];
   if (data.status === "synced") {
     // Blank entries are preserved in position — they carry timestamps
-    // (end-of-song/gap markers) that Phase 5 alignment must not drift.
+    // (end-of-song/gap markers) that playback-aligned display must not drift.
     lines = data.lines.map((line) => line.text);
   } else if (data.status === "plain") {
     lines = data.text.split("\n");

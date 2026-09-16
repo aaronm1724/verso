@@ -24,9 +24,9 @@ The intended user flow is:
 
 6. Verso displays the original lyrics and translation together.
 
-7. When synchronized lyrics are available, Verso can eventually follow playback and highlight the current line.
+7. When synchronized lyrics are available, Verso follows playback, highlights the current line, and auto-scrolls, with an explicit Resume following control after a manual scroll.
 
-8. When only plain lyrics are available, Verso falls back to a clean static reading experience.
+8. When only plain lyrics are available, Verso falls back to a clean static reading experience while still watching Spotify for the next track.
 
 The product should require as little manual input as possible.
 
@@ -158,23 +158,25 @@ Complete.
 
 - server-only translation boundary, Suspense-streamed so original lyrics never wait on OpenAI
 
-- original + translation UI, line-level alignment preserved for Phase 5
+- original + translation UI, line-level alignment preserved for playback follow
 
 ### Phase 5 — Playback-Aligned Lyrics
 
-Current phase.
+Complete.
 
-- highlight current lyric
+- `PlaybackMonitor` wraps authenticated UI as the sole `/api/playback/current` poller (3s while synced lyrics are on screen, 5s watch otherwise)
 
-- interpolate playback position
+- `SyncedLyricsPlayer` interpolates locally, highlights the active pair, and auto-scrolls; it does not fetch
 
-- periodically re-sync
+- same-track pause/resume/seek update the snapshot only; track/content/reauth trigger a guarded `router.refresh()`
 
-- intelligent auto-scroll
+- Resume following is a viewport-fixed bottom pill after manual scroll; live highlight starts once translation resolves (Option A)
 
-- non-synced fallback
+- plain / unavailable / idle / non-track stay static on screen with watch-only polling
 
 ### Phase 6 — Persistence and Caching
+
+Current phase.
 
 - PostgreSQL / Supabase
 

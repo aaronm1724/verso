@@ -1,12 +1,15 @@
 import { Suspense } from "react";
 
 import { LanguageSelect } from "./LanguageSelect";
-import { Lyrics, TranslatedLines, TranslationPending, TranslationUnavailable } from "./LyricsDisplay";
+import { Lyrics, TranslatedLines, TranslationPending, TranslationUnavailable, zipDisplayLyricLines } from "./LyricsDisplay";
+import { PlaybackMonitor } from "./PlaybackMonitor";
+import { SyncedLyricsPlayer } from "./SyncedLyricsPlayer";
 import { createDevLogger } from "@/lib/dev";
 import { getCurrentUserProfile } from "@/lib/spotify/client";
 import { getCurrentPlayback, type CurrentPlayback } from "@/lib/spotify/playback";
 import { getLyricsForTrack } from "@/lib/lyrics/lrclib";
 import type { LyricsLookupResult } from "@/lib/lyrics/types";
+import { SYNCED_POLL_INTERVAL_MS, WATCH_POLL_INTERVAL_MS } from "@/lib/lyrics/playbackSync";
 import { SUPPORTED_TARGET_LANGUAGES, resolveTargetLanguageCode } from "@/lib/translation/languages";
 import { extractSourceLines } from "@/lib/translation/sourceLines";
 import { translateLyrics } from "@/lib/translation/openai";
@@ -87,12 +90,16 @@ export async function TranslationSection({
   targetLanguageCode,
   trackName,
   artistName,
+  trackId,
+  durationMs,
 }: {
   lyrics: LyricsLookupResult;
   sourceLines: string[];
   targetLanguageCode: string;
   trackName: string;
   artistName: string;
+  trackId: string;
+  durationMs: number;
 }) {
   let translation: TranslationLookupResult;
   try {
@@ -114,6 +121,19 @@ export async function TranslationSection({
   if (!translation.ok) {
     devLog("TranslationSection: translation failed", { reason: translation.reason });
     return <TranslationUnavailable lyrics={lyrics} />;
+  }
+
+  if (lyrics.ok && lyrics.data.status === "synced") {
+    return (
+      <SyncedLyricsPlayer
+        key={trackId}
+        trackId={trackId}
+        durationMs={durationMs}
+        lines={zipDisplayLyricLines(lyrics.data.lines, translation.data.lines)}
+        sourceLanguage={translation.data.sourceLanguage}
+        targetLanguage={translation.data.targetLanguage}
+      />
+    );
   }
 
   return <TranslatedLines data={translation.data} originalLines={sourceLines} />;
@@ -208,59 +228,73 @@ export default async function Home({ searchParams }: PageProps<"/">) {
         ) : null}
 
         {profile.ok ? (
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-3 rounded-full border border-zinc-800 bg-zinc-900 px-4 py-2">
-              {profile.data.imageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element -- external Spotify-hosted avatar; not worth next/image remote-pattern config for one optional Phase 1 thumbnail
-                <img
-                  src={profile.data.imageUrl}
-                  alt=""
-                  className="h-8 w-8 rounded-full object-cover"
-                />
-              ) : null}
-              <span className="text-sm text-zinc-200">
-                Connected as {profile.data.displayName ?? "your Spotify account"}
-              </span>
-            </div>
-            <form action="/" method="get" className="flex items-center gap-2">
-              <label htmlFor="lang" className="text-xs text-zinc-500">
-                Translate to
-              </label>
-              <LanguageSelect languages={SUPPORTED_TARGET_LANGUAGES} defaultValue={targetLanguageCode} />
-            </form>
-            {playback ? (
-              playback.ok ? (
-                <NowPlaying playback={playback.data} />
-              ) : (
-                <p className="text-sm text-zinc-500">
-                  Couldn&apos;t check what&apos;s playing right now.
-                </p>
-              )
-            ) : null}
-            {lyrics ? (
-              currentTrack && sourceLines ? (
-                <Suspense fallback={<TranslationPending lyrics={lyrics} targetLanguageCode={targetLanguageCode} />}>
-                  <TranslationSection
-                    lyrics={lyrics}
-                    sourceLines={sourceLines}
-                    targetLanguageCode={targetLanguageCode}
-                    trackName={currentTrack.name}
-                    artistName={currentTrack.artistNames[0]}
+          <PlaybackMonitor
+            key={`${currentTrack?.id ?? "none"}:${playback?.ok ? playback.data.status : "lookup_failed"}`}
+            initialPlayback={playback ?? { ok: false, reason: "spotify_request_failed" }}
+            renderedTrackId={currentTrack?.id ?? null}
+            renderedPlaybackStatus={playback?.ok ? playback.data.status : "lookup_failed"}
+            pollIntervalMs={
+              lyrics?.ok && lyrics.data.status === "synced"
+                ? SYNCED_POLL_INTERVAL_MS
+                : WATCH_POLL_INTERVAL_MS
+            }
+          >
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-3 rounded-full border border-zinc-800 bg-zinc-900 px-4 py-2">
+                {profile.data.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- external Spotify-hosted avatar; not worth next/image remote-pattern config for one optional Phase 1 thumbnail
+                  <img
+                    src={profile.data.imageUrl}
+                    alt=""
+                    className="h-8 w-8 rounded-full object-cover"
                   />
-                </Suspense>
-              ) : (
-                <Lyrics lyrics={lyrics} />
-              )
-            ) : null}
-            <form action="/api/auth/spotify/logout" method="post">
-              <button
-                type="submit"
-                className="flex h-12 w-full items-center justify-center gap-2 rounded-full border border-zinc-700 px-5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-900"
-              >
-                Disconnect
-              </button>
-            </form>
-          </div>
+                ) : null}
+                <span className="text-sm text-zinc-200">
+                  Connected as {profile.data.displayName ?? "your Spotify account"}
+                </span>
+              </div>
+              <form action="/" method="get" className="flex items-center gap-2">
+                <label htmlFor="lang" className="text-xs text-zinc-500">
+                  Translate to
+                </label>
+                <LanguageSelect languages={SUPPORTED_TARGET_LANGUAGES} defaultValue={targetLanguageCode} />
+              </form>
+              {playback ? (
+                playback.ok ? (
+                  <NowPlaying playback={playback.data} />
+                ) : (
+                  <p className="text-sm text-zinc-500">
+                    Couldn&apos;t check what&apos;s playing right now.
+                  </p>
+                )
+              ) : null}
+              {lyrics ? (
+                currentTrack && sourceLines ? (
+                  <Suspense fallback={<TranslationPending lyrics={lyrics} targetLanguageCode={targetLanguageCode} />}>
+                    <TranslationSection
+                      lyrics={lyrics}
+                      sourceLines={sourceLines}
+                      targetLanguageCode={targetLanguageCode}
+                      trackName={currentTrack.name}
+                      artistName={currentTrack.artistNames[0]}
+                      trackId={currentTrack.id}
+                      durationMs={currentTrack.durationMs}
+                    />
+                  </Suspense>
+                ) : (
+                  <Lyrics lyrics={lyrics} />
+                )
+              ) : null}
+              <form action="/api/auth/spotify/logout" method="post">
+                <button
+                  type="submit"
+                  className="flex h-12 w-full items-center justify-center gap-2 rounded-full border border-zinc-700 px-5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-900"
+                >
+                  Disconnect
+                </button>
+              </form>
+            </div>
+          </PlaybackMonitor>
         ) : (
           <div className="flex flex-col gap-2">
             <a

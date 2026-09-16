@@ -33,6 +33,8 @@ const baseSectionInput = {
   targetLanguageCode: "en",
   trackName: "Test Track",
   artistName: "Test Artist",
+  trackId: "track-1",
+  durationMs: 180_000,
 };
 
 beforeEach(() => {
@@ -61,6 +63,34 @@ describe("TranslationSection", () => {
     expect(html.match(/Adios/g)).toHaveLength(1);
     expect(html).toContain("Hello world");
     expect(html).toContain("Goodbye");
+  });
+
+  it("keeps plain lyrics on the static paired layout rather than the synced player", async () => {
+    translateLyrics.mockResolvedValue({
+      ok: true,
+      data: {
+        sourceLanguage: "es",
+        targetLanguage: "en",
+        lines: [
+          { sourceIndex: 0, translatedText: "Hello world" },
+          { sourceIndex: 1, translatedText: "" },
+          { sourceIndex: 2, translatedText: "Goodbye" },
+        ],
+      },
+    });
+
+    const element = await TranslationSection({
+      ...baseSectionInput,
+      lyrics: {
+        ok: true,
+        data: { status: "plain", text: "Hola mundo\n\nAdios" },
+      },
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain("Hello world");
+    expect(html).toContain("Hola mundo");
+    expect(html).not.toContain("Resume following");
   });
 
   it("falls back to the original lyrics plus a generic failure note on translation failure, without duplicating lines", async () => {

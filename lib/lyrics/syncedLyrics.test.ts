@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseSyncedLyrics } from "./syncedLyrics";
+import { parseSyncedLyrics, stripInlineLrcTranslation } from "./syncedLyrics";
 
 describe("parseSyncedLyrics", () => {
   it("parses multiple standard [mm:ss.xx]text lines into startTimeMs/text", () => {
@@ -39,5 +39,36 @@ describe("parseSyncedLyrics", () => {
     expect(parseSyncedLyrics("")).toEqual([]);
     expect(parseSyncedLyrics("   \n  \n")).toEqual([]);
     expect(parseSyncedLyrics("not lyrics at all")).toEqual([]);
+  });
+});
+
+describe("stripInlineLrcTranslation", () => {
+  it("keeps the sung original when a Traly-style ^translation suffix is present", () => {
+    expect(stripInlineLrcTranslation("Otra vez me llamaste^You called me again")).toBe(
+      "Otra vez me llamaste",
+    );
+  });
+
+  it("strips a spaced ^translation suffix", () => {
+    expect(stripInlineLrcTranslation("Otra vez me llamaste ^ You called me again")).toBe(
+      "Otra vez me llamaste",
+    );
+  });
+
+  it("leaves text without a bilingual suffix unchanged", () => {
+    expect(stripInlineLrcTranslation("Otra vez me llamaste")).toBe("Otra vez me llamaste");
+    expect(stripInlineLrcTranslation("caret^")).toBe("caret^");
+    expect(stripInlineLrcTranslation("^only suffix")).toBe("^only suffix");
+  });
+});
+
+describe("parseSyncedLyrics bilingual suffixes", () => {
+  it("strips ^translation from timestamped lines so OpenAI never sees the embedded English", () => {
+    const raw = "[00:12.00] Otra vez me llamaste^You called me again\n[00:16.00] Second line";
+
+    expect(parseSyncedLyrics(raw)).toEqual([
+      { startTimeMs: 12_000, text: "Otra vez me llamaste" },
+      { startTimeMs: 16_000, text: "Second line" },
+    ]);
   });
 });
