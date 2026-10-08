@@ -4,7 +4,7 @@ export type SupportedLanguage = {
 };
 
 // Single source of truth for both the UI selector and input validation.
-// Small and fixed on purpose — a real preference layer is Phase 6 work.
+// Small and fixed on purpose. Persisting the user's language preference is deferred.
 export const SUPPORTED_TARGET_LANGUAGES: SupportedLanguage[] = [
   { code: "en", label: "English" },
   { code: "es", label: "Spanish" },

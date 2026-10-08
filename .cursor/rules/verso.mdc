@@ -30,11 +30,10 @@ External services will be introduced incrementally:
 - LRCLIB
 - OpenAI API
 - Zod
+- Supabase-hosted PostgreSQL and Drizzle, for translation caching
 
 Later, only when the milestone requires them:
 
-- PostgreSQL / Supabase
-- Drizzle ORM
 - PWA/service worker support
 - Vercel deployment
 
@@ -134,13 +133,13 @@ When synchronized lyrics are unavailable, use a clean static/plain lyric experie
 
 ## 8. Database rules
 
-Do not create PostgreSQL/Supabase until the translation pipeline works end-to-end.
+Supabase-hosted PostgreSQL is used through Drizzle for durable translation caching only.
 
-Persistence will initially be used for:
+Do not cache lyrics, playback, translation failures, or user identity.
 
-- translation caching
-- target-language preference
-- lightweight user preferences
+Do not add a preferences table, listening history, Redis, queues, or client-side database access in this phase.
+
+Target-language preference persistence is deferred. Language selection stays on `?lang=`.
 
 Do not design a large speculative schema early.
 
@@ -203,7 +202,7 @@ Phase 2 — current playback
 Phase 3 — LRCLIB lyric retrieval  
 Phase 4 — OpenAI translation  
 Phase 5 — playback-aligned lyrics  
-Phase 6 — persistence and caching  
+Phase 6 — durable translation caching  
 Phase 7 — PWA and production polish
 
 ## Commenting standards
@@ -233,7 +232,7 @@ If a comment can be removed without reducing understanding or maintainability, r
 
 ## Environment Variables
 
-A real `.env.local` file already exists in the project root and contains the Phase 1 development credentials.
+A real `.env.local` file already exists in the project root and contains the local development credentials.
 
 Expected variables:
 
@@ -242,6 +241,10 @@ SPOTIFY_CLIENT_ID=
 SPOTIFY_CLIENT_SECRET=
 SPOTIFY_REDIRECT_URI=
 SESSION_SECRET=
+OPENAI_API_KEY=
+OPENAI_TRANSLATION_MODEL=
+DATABASE_URL=
+DATABASE_URL_DIRECT=
 ```
 
 Use these values at runtime, but:

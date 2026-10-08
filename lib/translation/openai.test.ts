@@ -44,12 +44,14 @@ function completedResponse(outputParsed: unknown, contentType: "output_text" | "
 beforeEach(() => {
   process.env.OPENAI_API_KEY = "test-key";
   process.env.OPENAI_TRANSLATION_MODEL = "gpt-5.6-luna";
+  delete process.env.DATABASE_URL;
   mockParse.mockReset();
 });
 
 afterEach(() => {
   delete process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_TRANSLATION_MODEL;
+  delete process.env.DATABASE_URL;
 });
 
 describe("translateLyrics", () => {
@@ -213,5 +215,29 @@ describe("translateLyrics", () => {
     expect(requestArg.reasoning).toEqual({ effort: "none" });
     expect(requestArg.text.verbosity).toBe("low");
     expect(requestArg.max_output_tokens).toBe(6000);
+  });
+
+  it("sends the trimmed title and artist to the model", async () => {
+    mockParse.mockResolvedValue(
+      completedResponse({
+        sourceLanguage: "es",
+        lines: [
+          { sourceIndex: 0, translatedText: "Hi" },
+          { sourceIndex: 1, translatedText: "" },
+          { sourceIndex: 2, translatedText: "Bye" },
+        ],
+      }),
+    );
+
+    await translateLyrics({
+      ...baseInput,
+      trackName: "  Song Title  ",
+      artistName: "\nPrimary Artist\n",
+    });
+
+    const requestArg = mockParse.mock.calls[0][0] as { input: Array<{ content: string }> };
+    const prompt = requestArg.input[0].content;
+    expect(prompt).toContain('for "Song Title" by Primary Artist into');
+    expect(prompt).not.toContain("  Song Title  ");
   });
 });

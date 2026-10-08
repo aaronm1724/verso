@@ -88,11 +88,9 @@ External integrations:
 
 - Zod
 
+- Supabase-hosted PostgreSQL via Drizzle, for translation caching only
+
 Later:
-
-- PostgreSQL / Supabase
-
-- Drizzle ORM
 
 - PWA support
 
@@ -174,17 +172,14 @@ Complete.
 
 - plain / unavailable / idle / non-track stay static on screen with watch-only polling
 
-### Phase 6 — Persistence and Caching
+### Phase 6 — Durable translation caching
 
 Current phase.
 
-- PostgreSQL / Supabase
-
-- translation caching
-
-- user preferences
-
-- lightweight history as justified by product needs
+- successful OpenAI translations cached in Supabase-hosted PostgreSQL
+- cache identity is source text, title/artist context, target language, model, and cache version
+- lyrics, playback, failures, and user identity are not cached
+- target-language preference and listening history stay deferred; language selection remains `?lang=`
 
 ### Phase 7 — PWA and Production Polish
 

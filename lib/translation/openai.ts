@@ -2,9 +2,12 @@ import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 
 import { createDevLogger } from "../dev";
+import { validateAlignment } from "./alignment";
+import { getTranslationCacheStore, loadCachedTranslation, saveCachedTranslation } from "./cache";
+import { TRANSLATION_CACHE_VERSION, fingerprintSourceLines, fingerprintTranslationContext } from "./fingerprint";
 import { isSupportedLanguageCode } from "./languages";
-import { LyricsTranslationSchema, type LyricsTranslationPayload } from "./schema";
-import type { TranslatedLyricLine, TranslationLookupResult } from "./types";
+import { LyricsTranslationSchema } from "./schema";
+import type { TranslationLookupResult } from "./types";
 
 // Confirmed against current OpenAI guidance: GPT-5.6 rejects "minimal" for
 // reasoning.effort outright (400). "none" is the lowest supported rung and
@@ -79,30 +82,6 @@ Numbered source lines (index: text):
 ${numberedLines}`;
 }
 
-// The model is asked to echo sourceIndex, but that instruction alone is not
-// what guarantees correctness — this independent check is. Any length or
-// index mismatch is treated as invalid_response rather than trusting the
-// model's self-reported index.
-function validateAlignment(
-  sourceLineCount: number,
-  payload: LyricsTranslationPayload,
-): TranslatedLyricLine[] | null {
-  if (payload.lines.length !== sourceLineCount) {
-    return null;
-  }
-
-  for (let index = 0; index < payload.lines.length; index += 1) {
-    if (payload.lines[index].sourceIndex !== index) {
-      return null;
-    }
-  }
-
-  return payload.lines.map((line) => ({
-    sourceIndex: line.sourceIndex,
-    translatedText: line.translatedText,
-  }));
-}
-
 export async function translateLyrics(input: TranslateLyricsInput): Promise<TranslationLookupResult> {
   // Defense in depth only — callers resolve the language code through
   // resolveTargetLanguageCode() before this is ever reached.
@@ -121,8 +100,31 @@ export async function translateLyrics(input: TranslateLyricsInput): Promise<Tran
     return { ok: false, reason: "config_error" };
   }
 
-  // Constructed lazily, only after env validation. new OpenAI() throws
-  // synchronously if apiKey is missing/empty — constructing this at module
+  const title = input.trackName.trim();
+  const artist = input.artistName.trim();
+  const promptInput: TranslateLyricsInput = {
+    ...input,
+    trackName: title,
+    artistName: artist,
+  };
+  const identity = {
+    sourceFingerprint: fingerprintSourceLines(input.sourceLines),
+    contextFingerprint: fingerprintTranslationContext(title, artist),
+    targetLanguage: input.targetLanguageCode,
+    model,
+    cacheVersion: TRANSLATION_CACHE_VERSION,
+  };
+  const store = getTranslationCacheStore();
+  const cached = await loadCachedTranslation(store, {
+    identity,
+    sourceLines: input.sourceLines,
+  });
+  if (cached.status === "hit") {
+    return { ok: true, data: cached.result };
+  }
+
+  // Constructed lazily, only after env validation and a cache miss. new OpenAI()
+  // throws synchronously if apiKey is missing/empty — constructing this at module
   // scope would risk crashing the whole page render on a missing key
   // instead of degrading just this feature.
   const client = new OpenAI({ apiKey });
@@ -131,7 +133,7 @@ export async function translateLyrics(input: TranslateLyricsInput): Promise<Tran
   try {
     response = await client.responses.parse({
       model,
-      input: [{ role: "system", content: buildPrompt(input) }],
+      input: [{ role: "system", content: buildPrompt(promptInput) }],
       reasoning: { effort: REASONING_EFFORT },
       text: {
         format: zodTextFormat(LyricsTranslationSchema, "lyrics_translation"),
@@ -180,6 +182,16 @@ export async function translateLyrics(input: TranslateLyricsInput): Promise<Tran
     }
     return { ok: false, reason: "invalid_response" };
   }
+
+  await saveCachedTranslation(store, {
+    identity,
+    payload: {
+      sourceLanguage: parsed.sourceLanguage,
+      sourceLineCount: input.sourceLines.length,
+      lines: alignedLines,
+    },
+    repair: cached.status === "miss" && cached.malformed,
+  });
 
   return {
     ok: true,
