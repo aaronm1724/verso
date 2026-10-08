@@ -1,12 +1,6 @@
 import type { LyricsLookupResult } from "../lyrics/types";
 
-// Pure gating + splitting helper: no OpenAI dependency, so "no OpenAI call
-// for untranslatable lyrics" is unit-testable without mocking a client.
-//
-// Returns null (never send empty content to OpenAI) for:
-// - a failed lookup
-// - instrumental / not_found / unavailable lyrics
-// - lyrics that extract to zero non-blank lines
+// Returns null when there is nothing safe to send to the translator.
 export function extractSourceLines(lyrics: LyricsLookupResult): string[] | null {
   if (!lyrics.ok) {
     return null;

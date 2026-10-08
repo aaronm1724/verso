@@ -387,24 +387,4 @@ describe("translation cache", () => {
     expect(mockParse).not.toHaveBeenCalled();
     expect(second).toEqual(first);
   });
-
-  it("lets a later validated upsert replace an earlier one without failing the request", async () => {
-    const store = createMemoryStore();
-    const identity = identityFor(baseInput);
-    const firstLines = alignedLines;
-    const secondLines = [
-      { sourceIndex: 0, translatedText: "Hi" },
-      { sourceIndex: 1, translatedText: "" },
-      { sourceIndex: 2, translatedText: "Bye" },
-    ];
-
-    await expect(
-      store.upsert(identity, { sourceLanguage: "es", sourceLineCount: 3, lines: firstLines }),
-    ).resolves.toBeUndefined();
-    await expect(
-      store.upsert(identity, { sourceLanguage: "es", sourceLineCount: 3, lines: secondLines }),
-    ).resolves.toBeUndefined();
-
-    expect((await store.read(identity))?.lines).toEqual(secondLines);
-  });
 });

@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Avoids Next's auto-generated AGENTS.md/CLAUDE.md, which would duplicate .cursorrules.
+  // Skip Next's generated AGENTS.md / CLAUDE.md. Project rules live in .cursor/rules.
   agentRules: false,
 };
 

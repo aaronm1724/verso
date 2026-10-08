@@ -3,8 +3,7 @@ export type SupportedLanguage = {
   label: string;
 };
 
-// Single source of truth for both the UI selector and input validation.
-// Small and fixed on purpose. Persisting the user's language preference is deferred.
+// Fixed list shared by the selector and validation. The choice is not saved.
 export const SUPPORTED_TARGET_LANGUAGES: SupportedLanguage[] = [
   { code: "en", label: "English" },
   { code: "es", label: "Spanish" },
@@ -24,8 +23,6 @@ export function isSupportedLanguageCode(code: string): boolean {
   return SUPPORTED_CODES.has(code);
 }
 
-// Invalid/unsupported `?lang=` values fall back cleanly to the default
-// language rather than surfacing as an error.
 export function resolveTargetLanguageCode(rawCode: string | undefined): string {
   if (rawCode && isSupportedLanguageCode(rawCode)) {
     return rawCode;

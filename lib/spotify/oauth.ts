@@ -3,10 +3,9 @@ import { requiredEnv } from "./env";
 const AUTHORIZE_URL = "https://accounts.spotify.com/authorize";
 const TOKEN_URL = "https://accounts.spotify.com/api/token";
 
-// Proves the connected account via unscoped /v1/me fields (display name, id,
-// images) without requesting the user's email or private profile data.
-// user-read-playback-state is pre-requested now because Phase 2 needs it with
-// confidence and re-consent would otherwise be required.
+// /v1/me display name, id, and images are available without user-read-email
+// or user-read-private. user-read-playback-state is the only scope; adding
+// another later requires the user to consent again.
 export const SPOTIFY_SCOPES = "user-read-playback-state";
 
 function basicAuthHeader(): string {

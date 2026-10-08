@@ -64,131 +64,33 @@ It is not responsible for inventing or retrieving lyric text.
 
 Later features may include slang, idiom, regional-language, or cultural explanations.
 
-## Planned Stack
+## Stack
 
-Core:
+- Next.js App Router, React, TypeScript, Tailwind CSS
+- Spotify Web API for sign-in and current playback
+- LRCLIB for lyrics
+- OpenAI for translation, validated with Zod
+- Supabase-hosted PostgreSQL through Drizzle, for translation caching only
 
-- Next.js
+## Current capabilities
 
-- App Router
+- Spotify sign-in, server-only tokens, refresh, and reconnect
+- Current track, playback position, and paused or idle states
+- LRCLIB lyrics, preferring synchronized lines and falling back to plain text or a clean unavailable state
+- Target language chosen with `?lang=`
+- Original lyrics shown immediately, with the translation streamed in afterward
+- Line-by-line alignment between the original and the translation
+- Playback-aligned highlighting and auto-scroll for synchronized lyrics, with Resume following after a manual scroll
+- A static reading view for plain lyrics, while Spotify is still watched for the next track
+- Durable cache of successful translations, shared across visits and server restarts
 
-- React
+The cache is keyed by lyric text, title and artist, target language, model, and cache version. It does not store lyrics, playback, failures, or user identity.
 
-- TypeScript
+## Later
 
-- Tailwind CSS
+- Installable app and service-worker updates
+- Production deployment
+- A saved language preference
+- Listening history
 
-External integrations:
-
-- Spotify Web API
-
-- LRCLIB
-
-- OpenAI API
-
-- Zod
-
-- Supabase-hosted PostgreSQL via Drizzle, for translation caching only
-
-Later:
-
-- PWA support
-
-- Vercel
-
-## Roadmap
-
-### Phase 0 — Foundation
-
-Complete.
-
-- Next.js scaffold
-
-- mobile-first landing shell
-
-- base project configuration
-
-- documentation
-
-- lint/build/typecheck validation
-
-### Phase 1 — Spotify Authentication
-
-Complete.
-
-- Spotify OAuth
-
-- secure session handling
-
-- token refresh lifecycle
-
-- reconnect handling
-
-- minimal authenticated profile state
-
-### Phase 2 — Current Playback
-
-Complete.
-
-- identify currently playing track
-
-- retrieve playback state and position
-
-- handle paused/no-playback states
-
-### Phase 3 — Lyrics
-
-Complete.
-
-- retrieve lyrics through LRCLIB's `GET /api/get`
-
-- prefer synchronized lyrics, parsed into timestamped lines
-
-- fall back to plain lyrics, then a clean not-found state
-
-### Phase 4 — Translation
-
-Complete.
-
-- target language selection
-
-- OpenAI translation via Structured Outputs + Zod
-
-- server-only translation boundary, Suspense-streamed so original lyrics never wait on OpenAI
-
-- original + translation UI, line-level alignment preserved for playback follow
-
-### Phase 5 — Playback-Aligned Lyrics
-
-Complete.
-
-- `PlaybackMonitor` wraps authenticated UI as the sole `/api/playback/current` poller (3s while synced lyrics are on screen, 5s watch otherwise)
-
-- `SyncedLyricsPlayer` interpolates locally, highlights the active pair, and auto-scrolls; it does not fetch
-
-- same-track pause/resume/seek update the snapshot only; track/content/reauth trigger a guarded `router.refresh()`
-
-- Resume following is a viewport-fixed bottom pill after manual scroll; live highlight starts once translation resolves (Option A)
-
-- plain / unavailable / idle / non-track stay static on screen with watch-only polling
-
-### Phase 6 — Durable translation caching
-
-Current phase.
-
-- successful OpenAI translations cached in Supabase-hosted PostgreSQL
-- cache identity is source text, title/artist context, target language, model, and cache version
-- lyrics, playback, failures, and user identity are not cached
-- target-language preference and listening history stay deferred; language selection remains `?lang=`
-
-### Phase 7 — PWA and Production Polish
-
-- installability
-
-- mobile/home-screen experience
-
-- service-worker update behavior
-
-- Vercel deployment
-
-- privacy/data controls
+Language selection stays on `?lang=` until a saved preference exists.

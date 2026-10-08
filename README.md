@@ -1,63 +1,28 @@
 # Verso
 
-A mobile-first companion for listening to music in languages you don't fully
-understand.
-
-## Why I built it
-
-I listen to a lot of music in languages I don't fully understand. Getting a
-useful translation while listening usually means leaving Spotify, finding the
-lyrics somewhere else, finding or generating a translation, and then figuring
-out where you actually are in the song. Verso is meant to collapse that into
-one step.
+A mobile-first companion for listening to music in languages you don't fully understand.
 
 ## What it does
 
-The intended core flow:
+Connect Spotify, and Verso follows the song that is already playing. It loads the lyrics, translates them into the language you select, and shows the original and the translation together.
 
-- Connect Spotify.
-- Detect the currently playing song.
-- Retrieve its lyrics.
-- Translate them into your language.
-- Show the original and translated lyrics together.
-- Eventually, follow along with synced lyrics when timestamps are available.
+When the lyrics include timestamps, Verso highlights the current line and scrolls with playback. A manual scroll pauses that follow until you choose Resume following. Plain lyrics stay a static reading view, and Verso still watches Spotify for the next track.
 
-Right now, only the landing shell exists. None of the above is implemented
-yet — see [Current status](#current-status).
+Spotify does not provide lyrics. Verso looks them up on LRCLIB and translates only text it actually retrieved.
 
-## How it works
+## How it fits together
 
 ```text
 Spotify Web API
-→ current track metadata
+→ current track and playback position
 → LRCLIB lyrics
-→ OpenAI translation
-→ Verso UI
+→ OpenAI translation, reused from Postgres when the same lyrics and language were already translated
+→ original and translation, highlighted against playback when timestamps exist
 ```
 
-Spotify identifies the track and playback state, but its public Web API
-doesn't expose lyrics. LRCLIB is the lyric source, and OpenAI only
-translates lyrics that were actually retrieved — it never invents them.
+Successful translations are cached. Lyrics, playback, and failed lookups are not. Language choice is a `lang` query parameter and is not saved yet.
 
-## Tech
-
-- Next.js (App Router)
-- React
-- TypeScript
-- Tailwind CSS
-
-Planned, added only when a phase needs them: Spotify Web API, LRCLIB, OpenAI
-API, Zod, PostgreSQL/Supabase, Drizzle ORM, PWA/service worker support,
-Vercel deployment.
-
-## Current status
-
-Phase 0 is complete: a Next.js scaffold, a static mobile-first landing shell,
-and this project documentation. The "Connect Spotify" button on the landing
-page is intentionally inert.
-
-Not implemented yet: Spotify authentication, lyric retrieval, translation,
-persistence, and PWA support.
+Product context is in [docs/PROJECT.md](docs/PROJECT.md). Technical decisions are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Running locally
 
@@ -65,42 +30,25 @@ Requires Node.js 20+ and npm.
 
 ```bash
 npm install
+cp .env.example .env.local
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000). Spotify's local redirect only works on that host, not `localhost`.
 
 ```bash
-npm run lint       # ESLint
-npm run typecheck  # TypeScript, no emit
-npm run build      # Production build
-npm run start      # Serve the production build
+npm test
+npm run lint
+npm run typecheck
+npm run build
 ```
 
-## Environment variables
+`npm run db:migrate` applies the translation-cache schema. It reads `DATABASE_URL_DIRECT` and does not run on application startup.
 
-Copy `.env.example` to `.env.local` and fill in real values only once a
-phase actually needs them. `.env.local` is git-ignored; `.env.example` has
-no real secrets and is safe to commit.
+## Environment
 
-```bash
-cp .env.example .env.local
-```
+Copy `.env.example` to `.env.local` and fill in real values there. `.env.local` is git-ignored. `.env.example` contains names only.
 
-## Roadmap
+## Later
 
-- **Phase 0 — Foundation** (current): Next.js scaffold, landing shell.
-- **Phase 1 — Spotify auth:** login, OAuth callback, token/session handling,
-  refresh, reconnect state.
-- **Phase 2 — Current playback:** show the track, artist, art, and playback
-  state.
-- **Phase 3 — Lyrics:** query LRCLIB, prefer synced lyrics, fall back to
-  plain lyrics or a clean not-found state.
-- **Phase 4 — Translation:** target-language selection, OpenAI Structured
-  Outputs + Zod validation, original + translation side by side.
-- **Phase 5 — Playback-aligned lyrics:** synced highlighting and
-  auto-scroll.
-- **Phase 6 — Persistence:** PostgreSQL/Supabase, translation caching,
-  lightweight preferences.
-- **Phase 7 — PWA and polish:** installability, icons, service-worker
-  update behavior, Vercel deployment.
+An installable app, production deployment, a saved language preference, and listening history are not built yet.

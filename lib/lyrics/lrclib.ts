@@ -10,10 +10,8 @@ const LRCLIB_BASE_URL = "https://lrclib.net/api";
 // there is a single place that defines both values.
 const USER_AGENT = `Verso/${packageJson.version} (${packageJson.homepage})`;
 
-// Deliberately reads only plainLyrics/syncedLyrics, not the newer
-// `lyricsfile` field — nothing in the current roadmap needs the richer
-// Lyricsfile format, and consuming it would add a YAML dependency for no
-// current benefit.
+// plainLyrics and syncedLyrics only. The newer lyricsfile field is YAML;
+// parsing it would add a dependency for no current benefit.
 type LrclibGetResponse = {
   instrumental?: boolean;
   plainLyrics?: string | null;
@@ -47,9 +45,8 @@ function normalizeLrclibResponse(data: LrclibGetResponse): LyricsResult {
   const syncedLines = data.syncedLyrics ? parseSyncedLyrics(data.syncedLyrics) : [];
 
   if (syncedLines.length > 0) {
-    // A valid synced match must never be discarded just because LRCLIB's
-    // plainLyrics is empty/null — derive usable source text from the
-    // parsed lines instead so Phase 4 translation always has something.
+    // A synced match is still usable when plainLyrics is empty. Derive text
+    // from the parsed lines instead of dropping the match.
     const plainText =
       plainLyrics.length > 0
         ? plainLyrics
@@ -81,9 +78,8 @@ export async function getLyricsForTrack(track: SpotifyTrack): Promise<LyricsLook
     return { ok: true, data: { status: "not_found" } };
   }
 
-  // Covers non-404 error statuses (5xx, 429, etc.). LRCLIB requires 429's
-  // Retry-After to be honored if hit, but Phase 3's single lookup-per-render
-  // does not implement an automatic retry/backoff loop.
+  // Non-404 errors, including 429. LRCLIB asks clients to honor Retry-After.
+  // This lookup does not retry; a 429 becomes lookup_failed.
   if (!response.ok) {
     return { ok: false, reason: "lookup_failed" };
   }

@@ -24,7 +24,7 @@ Do not create separate Vite and Express applications.
 
 Do not create `/client` and `/server` projects.
 
-External services will be introduced incrementally:
+External services:
 
 - Spotify Web API
 - LRCLIB
@@ -48,7 +48,7 @@ Do not introduce infrastructure before it is needed.
 - Keep external API logic out of React presentation components.
 - Normalize third-party responses into Verso-owned domain types.
 - Do not build speculative abstractions.
-- Do not install dependencies for future phases early.
+- Do not install dependencies for a future milestone early.
 
 ## 3. External API boundaries
 
@@ -68,7 +68,7 @@ Spotify is used to:
 
 Spotify's public Web API does not provide lyrics.
 
-All Spotify API access must eventually pass through a dedicated Spotify client/service.
+All Spotify API access passes through a dedicated Spotify client.
 
 Spotify token handling must support:
 
@@ -87,7 +87,7 @@ Never expose or log:
 
 ## 5. Lyrics rules
 
-The MVP lyric provider is LRCLIB.
+The lyric provider is LRCLIB.
 
 The pipeline is:
 
@@ -105,11 +105,9 @@ The UI should depend on Verso-owned lyric types rather than LRCLIB response shap
 
 ## 6. Translation rules
 
-Do not implement translation until lyric retrieval works.
+OpenAI translates lyrics that were already retrieved:
 
-When OpenAI is introduced:
-
-- use OpenAI API for translation
+- use the OpenAI API for translation
 - use Structured Outputs with an explicit schema
 - validate responses with Zod
 - keep the model configurable
@@ -118,8 +116,6 @@ When OpenAI is introduced:
 - do not fabricate missing lines or metadata
 
 ## 7. Playback synchronization
-
-Do not implement this until basic current-track retrieval and lyrics work.
 
 When synchronized lyrics are available:
 
@@ -137,7 +133,7 @@ Supabase-hosted PostgreSQL is used through Drizzle for durable translation cachi
 
 Do not cache lyrics, playback, translation failures, or user identity.
 
-Do not add a preferences table, listening history, Redis, queues, or client-side database access in this phase.
+Do not add a preferences table, listening history, Redis, queues, or client-side database access.
 
 Target-language preference persistence is deferred. Language selection stays on `?lang=`.
 
@@ -192,18 +188,9 @@ For every milestone:
 7. harden expected failure states
 8. stop before the next milestone
 
-Do not automatically implement future phases.
+Do not automatically implement the next milestone.
 
-## 12. Planned roadmap
-
-Phase 0 — project foundation and landing shell  
-Phase 1 — Spotify authentication  
-Phase 2 — current playback  
-Phase 3 — LRCLIB lyric retrieval  
-Phase 4 — OpenAI translation  
-Phase 5 — playback-aligned lyrics  
-Phase 6 — durable translation caching  
-Phase 7 — PWA and production polish
+Do not expand the current milestone into later work. Still ahead, and only when a milestone explicitly requires it: an installable PWA, production deployment, a saved language preference, and listening history.
 
 ## Commenting standards
 
@@ -262,7 +249,7 @@ Do not create another environment file unless there is a concrete implementation
 
 ## Durable project context
 
-Before planning or implementing a new phase, read:
+Before planning or implementing a new milestone, read:
 
 - `docs/PROJECT.md`
 - `docs/ARCHITECTURE.md`
@@ -277,6 +264,6 @@ Do not rely on chat history as the sole source of important project decisions.
 
 When durable documentation changes:
 
-Update docs/PROJECT.md to reflect product direction, roadmap status, and current/high-level phase outcomes. Keep completed phases concise rather than preserving detailed implementation history.
+Update docs/PROJECT.md to reflect product direction, current capabilities, and later work. Keep that description concise rather than preserving implementation history.
 Update docs/ARCHITECTURE.md to preserve finalized technical decisions, constraints, tradeoffs, and integration strategies that future work must respect. Replace resolved open questions with the final decision and rationale rather than leaving stale or contradictory guidance.
 Do not use either file as a changelog; Git history is the source of implementation history.

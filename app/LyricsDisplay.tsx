@@ -3,11 +3,6 @@ import type { LyricsLookupResult, SyncedLyricLine } from "@/lib/lyrics/types";
 import { getLanguageLabel } from "@/lib/translation/languages";
 import type { TranslatedLyricLine, TranslationResult } from "@/lib/translation/types";
 
-// Pure presentation for the lyric/translation region — no data fetching, no
-// OpenAI/Spotify imports. Kept separate from app/page.tsx's orchestration
-// (Home, TranslationSection) so SyncedLyricsPlayer can consume a small
-// display-shaped line list without pulling Spotify/OpenAI into the client.
-
 const { devLog } = createDevLogger("page");
 
 const LYRICS_UNAVAILABLE_MESSAGE = "Lyrics not found for this track.";
@@ -24,8 +19,7 @@ export function Lyrics({ lyrics }: { lyrics: LyricsLookupResult }) {
     return <p className="text-sm text-zinc-500">This track is instrumental.</p>;
   }
 
-  // not_found and unavailable share fallback copy for now; the distinction
-  // exists in the domain model for future debugging, not the UI.
+  // Same copy for both. The domain states stay distinct.
   if (data.status === "not_found" || data.status === "unavailable") {
     return <p className="text-sm text-zinc-500">{LYRICS_UNAVAILABLE_MESSAGE}</p>;
   }
@@ -94,11 +88,8 @@ export function TranslatedLines({
   );
 }
 
-// Shared degraded state: original lyrics stay visible plus one generic
-// note. Used both when translateLyrics() resolves to a failure and for the
-// (never expected, but defended against in TranslationSection) case where
-// something throws instead of resolving — the user sees the same thing
-// either way.
+// Original lyrics plus one generic note, for a failed translation and for
+// an unexpected throw.
 export function TranslationUnavailable({ lyrics }: { lyrics: LyricsLookupResult }) {
   return (
     <div className="flex flex-col gap-2">
@@ -108,11 +99,7 @@ export function TranslationUnavailable({ lyrics }: { lyrics: LyricsLookupResult 
   );
 }
 
-// The Suspense fallback while translateLyrics() is in flight (typically a
-// handful of seconds). The status row renders first — on a long song, a
-// status placed after the full lyric block would be scrolled out of view
-// and effectively invisible. Original lyrics still render in full right
-// below it, never blocked or hidden while translation is pending.
+// Status is above the lyrics. After a long block it would be off screen.
 export function TranslationPending({
   lyrics,
   targetLanguageCode,

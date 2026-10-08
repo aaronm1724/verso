@@ -138,7 +138,7 @@ Track-change refreshes overlap a long-lived Suspense stream (`TranslationSection
 
 **Manual scroll:** auto-follow pauses on a user scroll (programmatic `scrollIntoView` is suppressed via a short window) and stays off until the user taps **Resume following** or the track changes. Highlighting continues while follow is paused. The control is a viewport-fixed, bottom-centered pill (`position: fixed`) so it stays visible after scrolling, with extra lyric-block padding so the last lines can sit above it.
 
-**Suspense / Option A:** the Phase 4 `<Suspense fallback={<TranslationPending/>}><TranslationSection/></Suspense>` boundary is unchanged. `PlaybackMonitor` wraps it, so polling continues during pending translation. Live highlighting does **not** start until translation resolves and `SyncedLyricsPlayer` mounts — accepted product tradeoff rather than hoisting highlight state across the Suspense boundary. During that window original lyrics stay visible but static. When the player mounts it reads the current context snapshot rather than only the stale `Home()` snapshot.
+**Suspense:** `PlaybackMonitor` wraps `<Suspense fallback={<TranslationPending/>}><TranslationSection/></Suspense>`, so polling continues while translation is pending. Live highlighting starts when `SyncedLyricsPlayer` mounts, rather than by hoisting highlight state across the Suspense boundary. During that window the original lyrics stay visible but static. When the player mounts it reads the current context snapshot, not only the snapshot from the initial `Home()` render.
 
 **Plain fallback:** `status === "plain"` still renders `TranslatedLines`. No 250ms tick. `PlaybackMonitor` stays mounted on the 5s watch cadence. Same for instrumental / not_found / unavailable / lookup_failed.
 
@@ -146,7 +146,7 @@ Track-change refreshes overlap a long-lived Suspense stream (`TranslationSection
 
 ## LRCLIB lyric retrieval
 
-The MVP lyric source is LRCLIB. Pipeline: Spotify track metadata → LRCLIB lookup → synchronized lyrics if available → plain lyrics if available → clean not-found state. Do not automatically scrape arbitrary lyric websites as a fallback. The UI consumes Verso-owned lyric types (`lib/lyrics/types.ts`), never raw LRCLIB response shapes.
+The lyric source is LRCLIB. Pipeline: Spotify track metadata → LRCLIB lookup → synchronized lyrics if available → plain lyrics if available → clean not-found state. Do not automatically scrape arbitrary lyric websites as a fallback. The UI consumes Verso-owned lyric types (`lib/lyrics/types.ts`), never raw LRCLIB response shapes.
 
 **Lookup strategy:** a single call to `GET /api/get`, not `/api/search`. `/api/search` returns up to 20 results with no duration filtering, which would require Verso to build its own disambiguation; `/api/get`'s server-enforced duration match (exact, or within ±2 seconds) is the anti-false-match mechanism instead. The accepted tradeoff is real coverage loss — some tracks findable by hand in LRCLIB's search will surface as `not_found`. Adding `/api/search` as a fallback would be a deliberate, separately-evaluated future decision.
 
@@ -179,7 +179,7 @@ OpenAI is used only to translate lyrics already retrieved from LRCLIB — never 
 
 **Client construction:** `new OpenAI()` throws synchronously if `OPENAI_API_KEY` is empty/missing. The client is therefore constructed lazily inside `lib/translation/openai.ts`'s `translateLyrics()`, only after `OPENAI_API_KEY` and `OPENAI_TRANSLATION_MODEL` are both explicitly validated — never at module scope. Missing/empty config short-circuits to `{ ok: false, reason: "config_error" }` before any client is constructed or network call attempted.
 
-**Domain model** (`lib/translation/types.ts`): `TranslatedLyricLine` (`sourceIndex`, `translatedText`), `TranslationResult` (`sourceLanguage`, `targetLanguage`, `lines`), and `TranslationLookupResult` discriminating `config_error` / `request_failed` / `invalid_response` / `refused` — kept distinct internally (mirroring the Phase 3 `not_found`/`unavailable` precedent) even though the UI shows one generic failure message for all four.
+**Domain model** (`lib/translation/types.ts`): `TranslatedLyricLine` (`sourceIndex`, `translatedText`), `TranslationResult` (`sourceLanguage`, `targetLanguage`, `lines`), and `TranslationLookupResult` discriminating `config_error` / `request_failed` / `invalid_response` / `refused`. Those reasons stay distinct internally, the same way `not_found` and `unavailable` do for lyrics, even though the UI shows one generic failure message for all four.
 
 **Line-index alignment invariant:** every source line (synced or plain, blanks included) is sent to the model tagged with its array index, and the model is instructed to return exactly one output line per input line, in the same order, with the same `sourceIndex`, and `translatedText: ""` for blank input lines. The prompt instruction is not what guarantees correctness — `translateLyrics()` independently validates after parsing that the returned array length matches the input length and that `lines[i].sourceIndex === i` for every `i`; any mismatch becomes `invalid_response` rather than trusting the model's self-reported index. This guarantees `TranslatedLyricLine[i]` corresponds to the source line at position `i` by construction, so playback-aligned display can zip a translated line with `SyncedLyricLine.startTimeMs` by array position without re-running translation.
 
@@ -187,7 +187,7 @@ OpenAI is used only to translate lyrics already retrieved from LRCLIB — never 
 
 **Target-language strategy:** a small fixed set of supported languages (`lib/translation/languages.ts`, defaulting to English) selected via a stateless `?lang=` query param on `/`, the same `searchParams` pattern already used for `spotify_error`. An unsupported/missing code falls back to the default rather than erroring. Language preference is not persisted.
 
-**Execution boundary — Suspense-streamed, not blocking:** `app/page.tsx`'s `Home` awaits profile → playback → lyrics exactly as in Phase 2/3 (all fast, free) and renders track info and original lyrics immediately. Source-line extraction (`extractSourceLines()`, pure/synchronous) happens in `Home` itself so a translation `<Suspense>` boundary — and the OpenAI call inside it — is only ever rendered when there is genuinely translatable content. The actual `translateLyrics()` call lives inside a separate async Server Component (`TranslationSection`) wrapped in `<Suspense>`, so Next.js streams the already-resolved shell first and streams in the translated lines once the OpenAI call resolves, instead of blocking the whole response on it. No client component, no Route Handler, no client-side OpenAI fetching — translation is fully server-side.
+**Execution boundary — Suspense-streamed, not blocking:** `app/page.tsx`'s `Home` awaits profile, playback, and lyrics, then renders track info and original lyrics immediately. Source-line extraction (`extractSourceLines()`, pure and synchronous) happens in `Home` so a translation `<Suspense>` boundary, and the OpenAI call inside it, is rendered only when there is translatable content. `translateLyrics()` lives in the async Server Component `TranslationSection`. Next.js streams the shell first and streams the translated lines when translation resolves. Translation stays on the server: no client OpenAI fetch and no translation Route Handler.
 
 **Model/config strategy:** the model is read from `OPENAI_TRANSLATION_MODEL` with no hardcoded fallback (unset → `config_error`); recommended development value is `gpt-5.6-luna`, OpenAI's own guidance for cost-sensitive, high-volume workloads. Request config in `lib/translation/openai.ts`: `reasoning: { effort: "none" }` (GPT-5.6 rejects `"minimal"` outright with a 400; `"none"` is the lowest supported rung and fully disables reasoning for this bounded, schema-constrained task — must use the nested Responses API shape, not the flat Chat Completions `reasoning_effort` field), `text.verbosity: "low"`, and an explicit `max_output_tokens: 6000` (sized for a full song with headroom; costs nothing extra unless actually used, since `reasoning: none` leaves the whole budget available for real content). If a different model is configured, verify it accepts these fields — this is not runtime-validated. The configured model string is part of the translation cache identity.
 
@@ -217,18 +217,3 @@ When introduced:
 - do not cache live playback responses
 - do not silently force disruptive mid-session updates
 - use deliberate update behavior
-
-## Development Strategy
-
-Implement one phase at a time. For each phase:
-
-1. inspect the current repo
-2. plan the smallest meaningful change
-3. review the plan
-4. implement the approved scope
-5. run automated checks
-6. perform manual testing
-7. report files changed and decisions made
-8. stop before the next phase
-
-Do not silently implement future phases.

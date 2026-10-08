@@ -41,7 +41,7 @@ function NowPlaying({ playback }: { playback: CurrentPlayback }) {
   return (
     <div className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900 px-4 py-3">
       {track.albumImageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element -- external Spotify-hosted artwork; not worth next/image remote-pattern config for one Phase 2 thumbnail
+        // eslint-disable-next-line @next/next/no-img-element -- Spotify CDN artwork; next/image would need a remote pattern for this one thumbnail
         <img
           src={track.albumImageUrl}
           alt=""
@@ -67,23 +67,8 @@ function describeUnexpectedError(error: unknown): Record<string, unknown> {
   return { name: "UnknownThrownValue", value: String(error) };
 }
 
-// A separate async Server Component so it can be wrapped in <Suspense>:
-// track info render immediately (Home, below), and this streams in once
-// the OpenAI call resolves, instead of blocking the whole page render on
-// translation. Its <Suspense> fallback shows the original lyrics plus a
-// pending indicator, so this component owns the entire lyric region once
-// it resolves — it must never render the original lines a second time
-// alongside its own output, which is why it renders <TranslationUnavailable>
-// (not paired lines a second time) on translation failure rather than a
-// bare error message.
-//
-// translateLyrics() always resolves to a TranslationLookupResult (ok:true or
-// a categorized ok:false) rather than throwing, so no Client Component error
-// boundary wraps this Suspense boundary — Next.js's streaming SSR doesn't
-// expect a hand-rolled class-based error boundary around a Server Component
-// subtree here. The try/catch below is only a narrow diagnostic net for a
-// genuinely unexpected throw outside that flow; it reuses the same
-// TranslationUnavailable fallback rather than adding another UI state.
+// Owns the whole lyric region once it resolves, including on failure, so the
+// original lines are not rendered a second time under the Suspense fallback.
 export async function TranslationSection({
   lyrics,
   sourceLines,
@@ -114,10 +99,6 @@ export async function TranslationSection({
     return <TranslationUnavailable lyrics={lyrics} />;
   }
 
-  // Internal failure reasons (config_error/request_failed/invalid_response/
-  // refused) stay distinct in the domain model but are never surfaced
-  // separately here — one generic message covers all of them, and the
-  // original lyrics the user already had remain visible.
   if (!translation.ok) {
     devLog("TranslationSection: translation failed", { reason: translation.reason });
     return <TranslationUnavailable lyrics={lyrics} />;
@@ -242,7 +223,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-3 rounded-full border border-zinc-800 bg-zinc-900 px-4 py-2">
                 {profile.data.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- external Spotify-hosted avatar; not worth next/image remote-pattern config for one optional Phase 1 thumbnail
+                  // eslint-disable-next-line @next/next/no-img-element -- Spotify CDN avatar; next/image would need a remote pattern for this one thumbnail
                   <img
                     src={profile.data.imageUrl}
                     alt=""

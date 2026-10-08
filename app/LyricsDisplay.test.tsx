@@ -48,7 +48,7 @@ describe("Lyrics", () => {
     expect(html).toContain("Adios");
   });
 
-  it("renders the Phase 3 lyric failure state for a failed lookup, not a crash", () => {
+  it("renders a failed lookup as unavailable copy, not a crash", () => {
     const html = renderToStaticMarkup(<Lyrics lyrics={failedLookup} />);
 
     expect(html).toContain("Couldn&#x27;t fetch lyrics right now.");

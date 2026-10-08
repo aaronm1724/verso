@@ -34,13 +34,8 @@ function readRequiredEnv(name: string): string | null {
 
 const isDev = process.env.NODE_ENV === "development";
 
-// Development-only diagnostics. Never given lyric text, prompts,
-// translations, secrets, or raw responses — only which failure branch was
-// hit and small, non-sensitive shape/metadata about why. The user-facing
-// result stays a single generic message regardless of what's logged here.
-// Every branch here is an expected, categorized outcome represented by
-// TranslationLookupResult, not an application error, so this only ever
-// uses devLog (console.log), never devError.
+// Expected translation outcomes. devLog, not devError: these are typed
+// results, and devError surfaces as an application-error overlay.
 const { devLog } = createDevLogger("translateLyrics");
 
 function describeThrownError(error: unknown): Record<string, unknown> {

@@ -111,17 +111,10 @@ export type AccessTokenResult =
   | { ok: true; accessToken: string }
   | { ok: false; reason: "reauth_required" };
 
-// cache() deduplicates repeated calls to a no-argument function within one
-// React render pass — here, one Server Component request/response cycle.
-// Without it, getCurrentUserProfile() and getCurrentPlayback() each
-// independently re-unseal the session cookie and, near token expiry, each
-// independently hit Spotify's token endpoint for what should be a single
-// refresh. This never persists across requests: Next.js gives every render
-// pass its own cache() scope, and the wrapped function itself still reads
-// the request's cookies fresh each time a *new* render calls it. This scope
-// is unrelated to proxy.ts, which runs earlier, outside any React render
-// tree — its own proactive refresh is a separate, uncoordinated path from
-// this one, not something this cache() call also dedupes against.
+// One refresh per render. Profile and playback would otherwise each unseal
+// the cookie and, near expiry, each call Spotify's token endpoint.
+// cache() does not span requests and does not include proxy.ts, which runs
+// before the React render.
 export const getValidAccessToken = cache(async (): Promise<AccessTokenResult> => {
   const session = await getSessionFromHeaders();
   if (!session.spotify) {
@@ -143,12 +136,9 @@ export const getValidAccessToken = cache(async (): Promise<AccessTokenResult> =>
   return { ok: true, accessToken: result.accessToken };
 });
 
-// Used by client.ts after an unexpected 401: always refreshes regardless of
-// the proactive margin, since the cached expiry can no longer be trusted.
-// Also cache()-deduplicated: if two calls in the same request both see the
-// unexpected 401 (they now share the same token via getValidAccessToken
-// above, so this is more likely than before), only one actually calls
-// Spotify's token endpoint — the second reuses that result.
+// Unexpected 401: the stored expiry can no longer be trusted, so refresh
+// even inside the proactive margin. cache() keeps a second caller in the
+// same render from hitting the token endpoint again.
 export const forceRefreshAccessToken = cache(async (): Promise<AccessTokenResult> => {
   const session = await getSessionFromHeaders();
   if (!session.spotify) {

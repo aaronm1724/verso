@@ -40,9 +40,8 @@ type SpotifyPlaybackStateResponse = {
   item: SpotifyTrackItem | null;
 };
 
-// Only fields future lyrics/playback-sync work actually depends on are
-// required. Album name/artwork are display-only and degrade to null instead
-// of making an otherwise-usable track "unavailable".
+// Album name and artwork are display-only. A missing album must not reject
+// a track that otherwise has an id, title, duration, and artist.
 function normalizeTrack(item: SpotifyTrackItem): SpotifyTrack | null {
   const artistNames = (item.artists ?? [])
     .map((artist) => artist.name)
