@@ -241,3 +241,59 @@ describe("translateLyrics", () => {
     expect(prompt).not.toContain("  Song Title  ");
   });
 });
+
+describe("production diagnostics", () => {
+  function loggedEvents(spy: { mock: { calls: unknown[][] } }): Array<Record<string, unknown>> {
+    return spy.mock.calls.map((call) => JSON.parse(call[0] as string) as Record<string, unknown>);
+  }
+
+  it("logs config_error as checked before the cache lookup without leaking values", async () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    process.env.OPENAI_API_KEY = '"sk-secret-value"';
+    process.env.OPENAI_TRANSLATION_MODEL = "";
+
+    const result = await translateLyrics(baseInput);
+
+    expect(result).toEqual({ ok: false, reason: "config_error" });
+    const [event] = loggedEvents(spy);
+    expect(event).toMatchObject({
+      event: "translation.config_error",
+      checkedBeforeCacheLookup: true,
+      apiKey: { present: true, hasSurroundingQuotes: true },
+      model: { present: false },
+      targetLanguage: "en",
+      sourceLineCount: 3,
+    });
+    expect(JSON.stringify(event)).not.toContain("sk-secret-value");
+    spy.mockRestore();
+  });
+
+  it("logs request_failed with safe OpenAI error metadata and no message", async () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockParse.mockRejectedValue(
+      Object.assign(new Error("Incorrect API key provided: sk-secret-value"), {
+        name: "AuthenticationError",
+        status: 401,
+        code: "invalid_api_key",
+        requestID: "req_1",
+      }),
+    );
+
+    const result = await translateLyrics(baseInput);
+
+    expect(result).toEqual({ ok: false, reason: "request_failed" });
+    const event = loggedEvents(spy).find((entry) => entry.event === "translation.request_failed");
+    expect(event).toMatchObject({
+      stage: "thrown",
+      cacheStatus: "disabled",
+      modelName: "gpt-5.6-luna",
+      errorStatus: 401,
+      errorCode: "invalid_api_key",
+      requestId: "req_1",
+      sourceLineCount: 3,
+    });
+    expect(JSON.stringify(spy.mock.calls)).not.toContain("sk-secret-value");
+    expect(JSON.stringify(spy.mock.calls)).not.toContain("Hola");
+    spy.mockRestore();
+  });
+});

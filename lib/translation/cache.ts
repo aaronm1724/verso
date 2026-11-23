@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { translations } from "../db/schema";
 import { createDevLogger } from "../dev";
+import { describeErrorCategory, logEvent, safeModelName } from "../log";
 import { validateAlignment } from "./alignment";
 import { LyricsTranslationSchema } from "./schema";
 import type { TranslatedLyricLine, TranslationResult } from "./types";
@@ -46,22 +47,10 @@ function cacheMeta(identity: TranslationCacheIdentity, sourceLineCount: number) 
     sourceFingerprintPrefix: identity.sourceFingerprint.slice(0, 8),
     contextFingerprintPrefix: identity.contextFingerprint.slice(0, 8),
     targetLanguage: identity.targetLanguage,
-    model: identity.model,
+    model: safeModelName(identity.model),
     cacheVersion: identity.cacheVersion,
     sourceLineCount,
   };
-}
-
-// Driver errors can embed the connection string. Keep the name and code only.
-function safeErrorDetails(error: unknown): Record<string, unknown> {
-  if (error instanceof Error) {
-    const withCode = error as Error & { code?: unknown };
-    return {
-      name: error.name,
-      code: typeof withCode.code === "string" ? withCode.code : undefined,
-    };
-  }
-  return { name: "UnknownThrownValue" };
 }
 
 function validateCachedRow(
@@ -172,6 +161,7 @@ export async function loadCachedTranslation(
   const meta = cacheMeta(input.identity, input.sourceLines.length);
   if (!store) {
     devLog("disabled", meta);
+    logEvent("translation.cache_disabled", meta);
     return { status: "disabled" };
   }
 
@@ -179,19 +169,23 @@ export async function loadCachedTranslation(
     const row = await store.read(input.identity);
     if (!row) {
       devLog("miss", meta);
+      logEvent("translation.cache_miss", { ...meta, malformed: false });
       return { status: "miss", malformed: false };
     }
 
     const result = validateCachedRow(row, input.sourceLines, input.identity.targetLanguage);
     if (!result) {
       devLog("miss", meta);
+      logEvent("translation.cache_miss", { ...meta, malformed: true });
       return { status: "miss", malformed: true };
     }
 
     devLog("hit", meta);
+    logEvent("translation.cache_hit", meta);
     return { status: "hit", result };
   } catch (error) {
-    devLog("read_failed", { ...meta, ...safeErrorDetails(error) });
+    devLog("read_failed", { ...meta, ...describeErrorCategory(error) });
+    logEvent("translation.cache_read_failed", { ...meta, ...describeErrorCategory(error) });
     return { status: "read_failed" };
   }
 }
@@ -215,6 +209,7 @@ export async function saveCachedTranslation(
       devLog("repaired", meta);
     }
   } catch (error) {
-    devLog("write_failed", { ...meta, ...safeErrorDetails(error) });
+    devLog("write_failed", { ...meta, ...describeErrorCategory(error) });
+    logEvent("translation.cache_write_failed", { ...meta, ...describeErrorCategory(error) });
   }
 }

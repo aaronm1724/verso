@@ -20,7 +20,7 @@ Spotify Web API
 → original and translation, highlighted against playback when timestamps exist
 ```
 
-Successful translations are cached. Lyrics, playback, and failed lookups are not. Language choice is a `lang` query parameter and is not saved yet.
+Successful translations are cached. Lyrics, playback, and failed lookups are not. Language choice is a `lang` query parameter, remembered in a cookie.
 
 Product context is in [docs/PROJECT.md](docs/PROJECT.md). Technical decisions are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -49,6 +49,16 @@ npm run build
 
 Copy `.env.example` to `.env.local` and fill in real values there. `.env.local` is git-ignored. `.env.example` contains names only.
 
+## Deploying to Vercel
+
+1. Import the repository in Vercel.
+2. Add every variable from `.env.example` except `DATABASE_URL_DIRECT`. Set `SPOTIFY_REDIRECT_URI` to `https://<domain>/api/auth/callback/spotify`, and use the Supabase transaction pooler (port 6543) for `DATABASE_URL`.
+3. Add the same redirect URI in the Spotify developer dashboard.
+4. Run `npm run db:migrate` locally before the first deploy.
+5. Pick a function region near your Supabase region. The home page requests `maxDuration = 60`, so confirm your Vercel plan allows it.
+
+Open the deployed URL on a phone and use Add to Home Screen to install Verso.
+
 ## Later
 
-An installable app, production deployment, a saved language preference, and listening history are not built yet.
+Listening-screen polish after real-phone testing, and listening history.

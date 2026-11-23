@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 
 import { createDevLogger } from "../dev";
+import { describeEnvValue, describeErrorCategory, logEvent, safeModelName } from "../log";
 import { validateAlignment } from "./alignment";
 import { getTranslationCacheStore, loadCachedTranslation, saveCachedTranslation } from "./cache";
 import { TRANSLATION_CACHE_VERSION, fingerprintSourceLines, fingerprintTranslationContext } from "./fingerprint";
@@ -81,6 +82,10 @@ export async function translateLyrics(input: TranslateLyricsInput): Promise<Tran
   // Defense in depth only — callers resolve the language code through
   // resolveTargetLanguageCode() before this is ever reached.
   if (!isSupportedLanguageCode(input.targetLanguageCode)) {
+    logEvent("translation.invalid_response", {
+      reason: "unsupported_language",
+      sourceLineCount: input.sourceLines.length,
+    });
     return { ok: false, reason: "invalid_response" };
   }
 
@@ -91,6 +96,16 @@ export async function translateLyrics(input: TranslateLyricsInput): Promise<Tran
       hasApiKey: Boolean(apiKey),
       hasModel: Boolean(model),
       model,
+    });
+    // This check runs before the cache lookup, so a config_error here means
+    // even a cached translation could not be served.
+    logEvent("translation.config_error", {
+      apiKey: describeEnvValue(process.env.OPENAI_API_KEY),
+      model: describeEnvValue(process.env.OPENAI_TRANSLATION_MODEL),
+      modelName: safeModelName(process.env.OPENAI_TRANSLATION_MODEL),
+      targetLanguage: input.targetLanguageCode,
+      sourceLineCount: input.sourceLines.length,
+      checkedBeforeCacheLookup: true,
     });
     return { ok: false, reason: "config_error" };
   }
@@ -108,6 +123,14 @@ export async function translateLyrics(input: TranslateLyricsInput): Promise<Tran
     targetLanguage: input.targetLanguageCode,
     model,
     cacheVersion: TRANSLATION_CACHE_VERSION,
+  };
+  const diagnosticMeta = {
+    modelName: safeModelName(model),
+    targetLanguage: identity.targetLanguage,
+    cacheVersion: identity.cacheVersion,
+    sourceLineCount: input.sourceLines.length,
+    sourceFingerprintPrefix: identity.sourceFingerprint.slice(0, 8),
+    contextFingerprintPrefix: identity.contextFingerprint.slice(0, 8),
   };
   const store = getTranslationCacheStore();
   const cached = await loadCachedTranslation(store, {
@@ -138,6 +161,12 @@ export async function translateLyrics(input: TranslateLyricsInput): Promise<Tran
     });
   } catch (error) {
     devLog("request_failed (thrown)", describeThrownError(error));
+    logEvent("translation.request_failed", {
+      ...diagnosticMeta,
+      stage: "thrown",
+      cacheStatus: cached.status,
+      ...describeErrorCategory(error),
+    });
     return { ok: false, reason: "request_failed" };
   }
 
@@ -148,6 +177,12 @@ export async function translateLyrics(input: TranslateLyricsInput): Promise<Tran
       status: response.status,
       incompleteReason: response.incomplete_details?.reason,
     });
+    logEvent("translation.request_failed", {
+      ...diagnosticMeta,
+      stage: "incomplete",
+      cacheStatus: cached.status,
+      incompleteReason: response.incomplete_details?.reason,
+    });
     return { ok: false, reason: "request_failed" };
   }
 
@@ -156,17 +191,28 @@ export async function translateLyrics(input: TranslateLyricsInput): Promise<Tran
 
   if (messageContent?.type === "refusal") {
     devLog("refused");
+    logEvent("translation.refused", { ...diagnosticMeta, cacheStatus: cached.status });
     return { ok: false, reason: "refused" };
   }
 
   const parsed = response.output_parsed;
   if (!parsed) {
     devLog("invalid_response (no output_parsed)", { status: response.status });
+    logEvent("translation.invalid_response", {
+      ...diagnosticMeta,
+      reason: "no_output",
+      responseStatus: response.status,
+    });
     return { ok: false, reason: "invalid_response" };
   }
 
   const alignedLines = validateAlignment(input.sourceLines.length, parsed);
   if (!alignedLines) {
+    logEvent("translation.invalid_response", {
+      ...diagnosticMeta,
+      reason: "alignment",
+      returnedLineCount: parsed.lines.length,
+    });
     if (isDev) {
       const firstMismatchIndex = parsed.lines.findIndex((line, index) => line.sourceIndex !== index);
       devLog("invalid_response (alignment)", {

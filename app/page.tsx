@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { Suspense } from "react";
 
 import { LanguageSelect } from "./LanguageSelect";
@@ -5,17 +6,25 @@ import { Lyrics, TranslatedLines, TranslationPending, TranslationUnavailable, zi
 import { PlaybackMonitor } from "./PlaybackMonitor";
 import { SyncedLyricsPlayer } from "./SyncedLyricsPlayer";
 import { createDevLogger } from "@/lib/dev";
+import { describeErrorCategory, logEvent } from "@/lib/log";
 import { getCurrentUserProfile } from "@/lib/spotify/client";
 import { getCurrentPlayback, type CurrentPlayback } from "@/lib/spotify/playback";
 import { getLyricsForTrack } from "@/lib/lyrics/lrclib";
 import type { LyricsLookupResult } from "@/lib/lyrics/types";
 import { SYNCED_POLL_INTERVAL_MS, WATCH_POLL_INTERVAL_MS } from "@/lib/lyrics/playbackSync";
-import { SUPPORTED_TARGET_LANGUAGES, resolveTargetLanguageCode } from "@/lib/translation/languages";
+import {
+  LANGUAGE_COOKIE_NAME,
+  SUPPORTED_TARGET_LANGUAGES,
+  resolveTargetLanguageCode,
+} from "@/lib/translation/languages";
 import { extractSourceLines } from "@/lib/translation/sourceLines";
 import { translateLyrics } from "@/lib/translation/openai";
 import type { TranslationLookupResult } from "@/lib/translation/types";
 
 const { devLog, devError } = createDevLogger("page");
+
+// Uncached translation streams from this render and takes 10+ seconds.
+export const maxDuration = 60;
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -96,6 +105,7 @@ export async function TranslationSection({
     translation = await translateLyrics({ sourceLines, targetLanguageCode, trackName, artistName });
   } catch (error) {
     devError("TranslationSection: unexpected throw outside TranslationLookupResult", describeUnexpectedError(error));
+    logEvent("translation.unexpected_throw", describeErrorCategory(error));
     return <TranslationUnavailable lyrics={lyrics} />;
   }
 
@@ -147,6 +157,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   const errorMessage = resolveSpotifyErrorMessage(errorCode);
   const targetLanguageCode = resolveTargetLanguageCode(
     typeof params.lang === "string" ? params.lang : undefined,
+    (await cookies()).get(LANGUAGE_COOKIE_NAME)?.value,
   );
 
   const profile = await getCurrentUserProfile();

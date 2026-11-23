@@ -41,6 +41,7 @@ describe("getDb", () => {
     expect(postgresMock).toHaveBeenCalledWith(fakeUrl, {
       prepare: false,
       max: 1,
+      ssl: "require",
       connect_timeout: 3,
     });
   });

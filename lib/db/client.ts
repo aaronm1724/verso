@@ -9,7 +9,9 @@ export type Database = PostgresJsDatabase<typeof schema>;
 // client would open a new pool on every reload; keeping it on globalThis
 // reuses the existing one. Runtime queries use the transaction pooler, which
 // rejects prepared statements, so `prepare` stays off. `max: 1` keeps a
-// serverless instance from holding more than one pooler connection.
+// serverless instance from holding more than one pooler connection. Postgres.js
+// defaults to an opportunistic SSL mode that can fall back to plaintext, so
+// `ssl: "require"` makes the driver refuse an unencrypted connection.
 const globalForDb = globalThis as typeof globalThis & {
   __versoSql?: postgres.Sql;
   __versoDb?: Database;
@@ -25,6 +27,7 @@ export function getDb(): Database | null {
     const sql = postgres(url, {
       prepare: false,
       max: 1,
+      ssl: "require",
       connect_timeout: 3,
     });
     globalForDb.__versoSql = sql;

@@ -388,3 +388,46 @@ describe("translation cache", () => {
     expect(second).toEqual(first);
   });
 });
+
+describe("cache diagnostics", () => {
+  it("logs cache_read_failed with the Postgres code from a wrapped cause, not the message", async () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    process.env.DATABASE_URL = "postgres://user:pw-secret@host/db";
+    storeBox.current = {
+      async read() {
+        throw Object.assign(new Error("Failed query: params pw-secret"), {
+          name: "DrizzleQueryError",
+          cause: Object.assign(new Error("tls failure"), { name: "PostgresError", code: "CONNECT_TIMEOUT" }),
+        });
+      },
+      async upsert() {},
+    };
+    mockParse.mockResolvedValue(completedResponse(validParsed()));
+
+    await translateLyrics(baseInput);
+
+    const events = spy.mock.calls.map((call) => JSON.parse(call[0] as string) as Record<string, unknown>);
+    expect(events.find((entry) => entry.event === "translation.cache_read_failed")).toMatchObject({
+      errorName: "DrizzleQueryError",
+      causeCode: "CONNECT_TIMEOUT",
+      model: "gpt-5.6-luna",
+      cacheVersion: "v1",
+      sourceLineCount: 3,
+    });
+    expect(JSON.stringify(spy.mock.calls)).not.toContain("pw-secret");
+    spy.mockRestore();
+  });
+
+  it("logs hit and miss without any lyric text", async () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockParse.mockResolvedValue(completedResponse(validParsed()));
+
+    await translateLyrics(baseInput);
+    await translateLyrics(baseInput);
+
+    const names = spy.mock.calls.map((call) => (JSON.parse(call[0] as string) as { event: string }).event);
+    expect(names).toContain("translation.cache_miss");
+    expect(names).toContain("translation.cache_hit");
+    spy.mockRestore();
+  });
+});

@@ -127,7 +127,7 @@ export function SyncedLyricsPlayer({
         <button
           type="button"
           onClick={() => setAutoFollow(true)}
-          className="fixed bottom-6 left-1/2 z-10 -translate-x-1/2 rounded-full border border-zinc-600 bg-zinc-900 px-4 py-2 text-xs font-medium text-zinc-50 shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-100"
+          className="fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] left-1/2 z-10 -translate-x-1/2 rounded-full border border-zinc-600 bg-zinc-900 px-4 py-2 text-xs font-medium text-zinc-50 shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-100"
         >
           Resume following
         </button>

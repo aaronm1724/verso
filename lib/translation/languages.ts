@@ -23,9 +23,19 @@ export function isSupportedLanguageCode(code: string): boolean {
   return SUPPORTED_CODES.has(code);
 }
 
-export function resolveTargetLanguageCode(rawCode: string | undefined): string {
-  if (rawCode && isSupportedLanguageCode(rawCode)) {
-    return rawCode;
+export const LANGUAGE_COOKIE_NAME = "verso_lang";
+export const LANGUAGE_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
+
+// An explicit ?lang= wins, then the remembered cookie, then the default.
+export function resolveTargetLanguageCode(
+  queryCode: string | undefined,
+  cookieCode?: string,
+): string {
+  if (queryCode && isSupportedLanguageCode(queryCode)) {
+    return queryCode;
+  }
+  if (cookieCode && isSupportedLanguageCode(cookieCode)) {
+    return cookieCode;
   }
   return DEFAULT_TARGET_LANGUAGE;
 }

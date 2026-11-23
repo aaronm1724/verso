@@ -41,7 +41,7 @@ Spotify's public Web API does not expose lyric text.
 
 Use Spotify Authorization Code Flow (Verso has a server runtime capable of securely storing the client secret).
 
-Current development redirect URI: `http://127.0.0.1:3000/api/auth/callback/spotify`.
+Development redirect URI: `http://127.0.0.1:3000/api/auth/callback/spotify`. Production redirect URI: `https://<domain>/api/auth/callback/spotify`, set as `SPOTIFY_REDIRECT_URI` in Vercel and registered in the Spotify dashboard alongside the development URI.
 
 Local development must be accessed at `http://127.0.0.1:3000`, never `http://localhost:3000`. Spotify requires loopback IP literals (not `localhost`) for local HTTP redirect URIs, and the OAuth state cookie is scoped to whichever host starts the flow — starting from `localhost` while Spotify redirects back to `127.0.0.1` drops the state cookie and produces a false `state_mismatch`. `npm run dev` binds explicitly to `127.0.0.1` (`next dev -H 127.0.0.1`) so the whole flow stays on one host.
 
@@ -185,7 +185,7 @@ OpenAI is used only to translate lyrics already retrieved from LRCLIB — never 
 
 **Source-language metadata:** `sourceLanguage` is a lowercase two-letter (ISO 639-1-shaped) string, format-enforced via Structured Outputs' `pattern` string constraint (part of the supported strict-mode JSON Schema subset, so the model cannot emit a non-matching shape). This is **best-effort model-reported metadata only** — its format is enforced, its semantic correctness is not verified, and translation success never depends on it. Its only consumer is a lightweight "Already in {language}" UX note when it equals the requested target language.
 
-**Target-language strategy:** a small fixed set of supported languages (`lib/translation/languages.ts`, defaulting to English) selected via a stateless `?lang=` query param on `/`, the same `searchParams` pattern already used for `spotify_error`. An unsupported/missing code falls back to the default rather than erroring. Language preference is not persisted.
+**Target-language strategy:** a small fixed set of supported languages (`lib/translation/languages.ts`, defaulting to English) selected via a `?lang=` query param on `/`, the same `searchParams` pattern already used for `spotify_error`. Precedence is a supported `?lang=`, then the `verso_lang` cookie, then English. `proxy.ts` (already matched to `/`) writes the cookie when `?lang=` is supported (one year, `SameSite=Lax`, `Secure` in production); `Home` only reads it. The cookie is the only persistence: no preferences table and no account. An installed app opens `start_url: "/"`, so the cookie is what keeps its language across launches.
 
 **Execution boundary — Suspense-streamed, not blocking:** `app/page.tsx`'s `Home` awaits profile, playback, and lyrics, then renders track info and original lyrics immediately. Source-line extraction (`extractSourceLines()`, pure and synchronous) happens in `Home` so a translation `<Suspense>` boundary, and the OpenAI call inside it, is rendered only when there is translatable content. `translateLyrics()` lives in the async Server Component `TranslationSection`. Next.js streams the shell first and streams the translated lines when translation resolves. Translation stays on the server: no client OpenAI fetch and no translation Route Handler.
 
@@ -205,13 +205,23 @@ The only table is `translations`. It caches successful translations. It does not
 
 **Writes:** `INSERT ... ON CONFLICT DO UPDATE` replaces `lines`, `source_language`, and `source_line_count` only after validation succeeds. A malformed row is treated as a miss and repaired by the next validated write, so the following request can hit. Concurrent misses may both call OpenAI; the last validated upsert wins. No locks, queues, or retries.
 
-**Connections:** runtime queries use `DATABASE_URL` (transaction pooler, port 6543) with `prepare: false`, `max: 1`, and a 3-second connect timeout. The client is created lazily and reused across dev HMR. Missing `DATABASE_URL` skips the cache. Migrations use `DATABASE_URL_DIRECT` (direct Postgres, port 5432) through Drizzle Kit and do not run on application startup. If that direct host is unreachable because it is IPv6-only, the approved fallback is the Supabase session pooler on port 5432 for migrations only.
+**Connections:** runtime queries use `DATABASE_URL` (transaction pooler, port 6543) with `prepare: false`, `max: 1`, `ssl: "require"` (Postgres.js otherwise may fall back to plaintext), and a 3-second connect timeout. This matches Supabase's serverless guidance for Postgres.js; certificate verification (`verify-full`) is deliberately not used. The client is created lazily and reused across dev HMR. Missing `DATABASE_URL` skips the cache. Migrations use `DATABASE_URL_DIRECT` (direct Postgres, port 5432) through Drizzle Kit and do not run on application startup. If that direct host is unreachable because it is IPv6-only, the approved fallback is the Supabase session pooler on port 5432 for migrations only.
+
+## Deployment
+
+Verso deploys to Vercel with no `vercel.json`, CI, or extra infrastructure. Vercel env carries every name in `.env.example` except `DATABASE_URL_DIRECT`; migrations are run manually from a local machine with `npm run db:migrate` and never on build or boot. The function region should sit near the Supabase region.
+
+`app/page.tsx` exports `maxDuration = 60` because the uncached translation streams from that render and takes 10+ seconds. Verify the Vercel plan permits that duration. No timeout wrappers or separate translation job exist to compensate for a lower cap.
+
+Session, OAuth state, and language cookies are `Secure` when `NODE_ENV === "production"`; `SameSite=Lax` is required for Spotify's top-level redirect back.
 
 ## PWA
 
-PWA/service-worker functionality is deferred until the responsive mobile web experience works.
+Verso is installable through `app/manifest.ts` (standalone display, zinc-950 colors, `start_url: "/"`), generated PNG icons (`app/icons/[size]`, `app/apple-icon.tsx`), and viewport `viewportFit: "cover"` with a theme color. The fixed Resume following control pads for `safe-area-inset-bottom`. There is no service worker: all data is live Spotify, LRCLIB, or server translation, so offline caching would only serve stale or disallowed playback data, and each navigation loads the current deployment.
 
-When introduced:
+Whether Spotify OAuth completes inside an iOS standalone app is untested. Do not build an OAuth workaround until a real-phone test shows a problem.
+
+If a service worker is ever introduced:
 
 - do not cache authenticated Spotify responses
 - do not cache live playback responses

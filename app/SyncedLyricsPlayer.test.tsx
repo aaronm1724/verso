@@ -147,7 +147,7 @@ describe("SyncedLyricsPlayer", () => {
     const resume = screen.getByRole("button", { name: "Resume following" });
     expect(resume).toBeTruthy();
     expect(resume.className).toContain("fixed");
-    expect(resume.className).toContain("bottom-6");
+    expect(resume.className).toContain("safe-area-inset-bottom");
 
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);
     scrollIntoView.mockClear();

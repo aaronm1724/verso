@@ -77,7 +77,8 @@ Later features may include slang, idiom, regional-language, or cultural explanat
 - Spotify sign-in, server-only tokens, refresh, and reconnect
 - Current track, playback position, and paused or idle states
 - LRCLIB lyrics, preferring synchronized lines and falling back to plain text or a clean unavailable state
-- Target language chosen with `?lang=`
+- Target language chosen with `?lang=` and remembered in a cookie for the next visit
+- Installable to the home screen with a web manifest (no service worker, no offline mode)
 - Original lyrics shown immediately, with the translation streamed in afterward
 - Line-by-line alignment between the original and the translation
 - Playback-aligned highlighting and auto-scroll for synchronized lyrics, with Resume following after a manual scroll
@@ -88,9 +89,8 @@ The cache is keyed by lyric text, title and artist, target language, model, and 
 
 ## Later
 
-- Installable app and service-worker updates
-- Production deployment
-- A saved language preference
+- Listening-screen polish, planned after real-phone use of the Vercel deployment
+- Service-worker updates, only if a concrete need appears
 - Listening history
 
-Language selection stays on `?lang=` until a saved preference exists.
+The language cookie is the only saved preference. There is no account-level preference storage.
